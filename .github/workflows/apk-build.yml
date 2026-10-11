@@ -58,6 +58,8 @@ jobs:
     name: APK
     needs: build-lkms
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -101,3 +103,22 @@ jobs:
           name: DFRoot-APK
           path: DFRoot/out/*.apk
           if-no-files-found: error
+
+      # The APK is pushed back into the branch so it can be downloaded straight
+      # from the repository (repo root, so it does not retrigger this workflow).
+      - name: Publish APKs into the branch
+        run: |
+          set -e
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p out
+          rm -f out/*.apk
+          cp DFRoot/out/*.apk out/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f out
+          if git diff --cached --quiet; then
+            echo "APK unchanged, nothing to commit"
+          else
+            git commit -m "build: DFRoot APK (run ${{ github.run_number }})"
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi

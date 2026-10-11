@@ -1,5 +1,6 @@
 package df.root;
 
+import android.app.ActionBar;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -10,6 +11,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -20,12 +22,12 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -34,8 +36,15 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity implements IReporter {
 
     private static final String TAG = "dfroot";
+    private static final String PREF_AUTO_SAVE_LOG = "auto_save_log";
+    private static final int MAX_LOG_CHARS = 256 * 1024;
+    private static final long RUN_TIMEOUT_MS = 10 * 60 * 1000L;
 
     private Button btnRun;
+    private Button btnSaveLog;
+    private Button btnCopyLog;
+    private ProgressBar progress;
+    private TextView statusView;
     private ScrollView outputScroll;
     private TextView outputView;
     private Spinner spinnerSuManager;
@@ -43,10 +52,15 @@ public class MainActivity extends Activity implements IReporter {
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private final Executor mExec = Executors.newSingleThreadExecutor();
     private int mValidSuManagerPos = 0;
+    private final StringBuilder mLog = new StringBuilder();
 
     @Override
     public void report(String msg) {
         Log.i(TAG, msg.trim());
+        mLog.append(msg);
+        if (mLog.length() > MAX_LOG_CHARS) {
+            mLog.delete(0, mLog.length() - MAX_LOG_CHARS);
+        }
         mMain.post(() -> {
             outputView.append(msg);
             outputScroll.post(() -> outputScroll.fullScroll(View.FOCUS_DOWN));
@@ -59,9 +73,16 @@ public class MainActivity extends Activity implements IReporter {
         mDeCtx = createDeviceProtectedStorageContext();
         setContentView(R.layout.activity_main);
 
-        getActionBar().setSubtitle("@diabl0w github/xda");
+        ActionBar ab = getActionBar();
+        if (ab != null) {
+            ab.setSubtitle(getString(R.string.subtitle, appVersion()));
+        }
 
         btnRun = findViewById(R.id.btnRun);
+        btnSaveLog = findViewById(R.id.btnSaveLog);
+        btnCopyLog = findViewById(R.id.btnCopyLog);
+        progress = findViewById(R.id.progress);
+        statusView = findViewById(R.id.statusView);
         outputScroll = findViewById(R.id.outputScroll);
         outputView = findViewById(R.id.outputView);
         spinnerSuManager = findViewById(R.id.spinnerSuManager);
@@ -74,7 +95,7 @@ public class MainActivity extends Activity implements IReporter {
             entries.add(new SuManagerEntry(ai.packageName, pm.getApplicationLabel(ai), pm.getApplicationIcon(ai)));
         }
         entries.sort((a, b) -> a.label.toString().compareToIgnoreCase(b.label.toString()));
-        entries.add(0, new SuManagerEntry(null, "Select a SU Manager", null));
+        entries.add(0, new SuManagerEntry(null, getString(R.string.select_su_manager), null));
 
         spinnerSuManager.setAdapter(new SuManagerAdapter(this, entries));
 
@@ -107,12 +128,23 @@ public class MainActivity extends Activity implements IReporter {
         });
 
         updateRunButton();
+        updateStatus();
 
         btnRun.setOnClickListener(v -> {
             btnRun.setEnabled(false);
+            btnSaveLog.setEnabled(false);
+            btnCopyLog.setEnabled(false);
+            progress.setVisibility(View.VISIBLE);
             outputView.setText("");
+            mLog.setLength(0);
             mExec.execute(this::runExploit);
         });
+
+        btnSaveLog.setOnClickListener(v -> saveLog());
+        btnCopyLog.setOnClickListener(v -> copyLog());
+
+        // Print device diagnostics right away, before anything is launched.
+        mExec.execute(() -> DeviceInfo.report(this, this));
     }
 
     @Override
@@ -130,23 +162,88 @@ public class MainActivity extends Activity implements IReporter {
         return super.onOptionsItemSelected(item);
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateStatus();
+    }
+
+    private String appVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            return "?";
+        }
+    }
+
     private void updateRunButton() {
-        btnRun.setEnabled(mValidSuManagerPos >= 1 && !new File("/dev/df").exists());
+        btnRun.setEnabled(mValidSuManagerPos >= 1 && !DeviceInfo.rootActive());
+    }
+
+    private void updateStatus() {
+        boolean active = DeviceInfo.rootActive();
+        statusView.setText(active ? R.string.status_active : R.string.status_inactive);
+    }
+
+    private boolean autoSaveEnabled() {
+        return mDeCtx.getSharedPreferences(ExploitRunner.PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_AUTO_SAVE_LOG, false);
+    }
+
+    private void saveLog() {
+        final String text = mLog.toString();
+        if (text.trim().isEmpty()) {
+            Toast.makeText(this, R.string.log_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String name = LogSaver.fileName();
+        mExec.execute(() -> {
+            boolean ok = LogSaver.save(getApplicationContext(), name, text);
+            mMain.post(() -> Toast.makeText(this,
+                    ok ? getString(R.string.log_saved, name) : getString(R.string.log_save_failed),
+                    Toast.LENGTH_LONG).show());
+        });
+    }
+
+    private void copyLog() {
+        final String text = mLog.toString();
+        if (text.trim().isEmpty()) {
+            Toast.makeText(this, R.string.log_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        boolean ok = LogSaver.copy(this, text);
+        Toast.makeText(this, ok ? R.string.log_copied : R.string.log_copy_failed, Toast.LENGTH_SHORT).show();
     }
 
     private void runExploit() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dfroot:run");
+        wl.acquire(RUN_TIMEOUT_MS); // keep the CPU awake while the exploit runs
         try {
             int rc = ExploitRunner.run(mDeCtx, this);
-            String msg = rc == 0 ? "DFRoot: SUCCESS"
-                       : rc == 1 ? "DFRoot: Error - ksud nonzero exit"
-                       : rc == 2 ? "DFRoot: Error - check logcat & dmesg"
-                       : "DFRoot: Error - failed to patch files";
+            String msg = rc == 0 ? getString(R.string.result_success)
+                       : rc == 1 ? getString(R.string.result_ksud_exit)
+                       : rc == 2 ? getString(R.string.result_check_logs)
+                       : getString(R.string.result_patch_failed);
             mMain.post(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
+
+            if (autoSaveEnabled()) {
+                final String text = mLog.toString();
+                final String name = LogSaver.fileName();
+                mExec.execute(() -> LogSaver.save(getApplicationContext(), name, text));
+            }
         } catch (Exception e) {
             Log.e(TAG, "exploit exception", e);
-            report("\nexception: " + e + "\n");
+            report("\n" + getString(R.string.err_generic, e) + "\n");
         } finally {
-            mMain.post(this::updateRunButton);
+            mMain.post(() -> {
+                progress.setVisibility(View.GONE);
+                btnSaveLog.setEnabled(true);
+                btnCopyLog.setEnabled(true);
+                updateRunButton();
+                updateStatus();
+            });
+            if (wl.isHeld()) wl.release();
         }
     }
 

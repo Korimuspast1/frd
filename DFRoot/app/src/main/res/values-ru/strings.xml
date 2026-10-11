@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">DFRoot</string>
+    <string name="subtitle">v%1$s · @diabl0w github/xda</string>
+
+    <!-- Главный экран -->
+    <string name="run">Получить root</string>
+    <string name="save_log">Сохранить лог</string>
+    <string name="copy_log">Копировать лог</string>
+    <string name="settings">Настройки</string>
+    <string name="select_su_manager">Выберите SU-менеджер</string>
+
+    <string name="status_active">Root активен в этой сессии</string>
+    <string name="status_inactive">Root не активен</string>
+
+    <!-- Действия с логом -->
+    <string name="log_empty">Лог пустой</string>
+    <string name="log_saved">Лог сохранён в Загрузки: %1$s</string>
+    <string name="log_save_failed">Не удалось сохранить лог</string>
+    <string name="log_copied">Лог скопирован в буфер обмена</string>
+    <string name="log_copy_failed">Не удалось скопировать лог</string>
+
+    <!-- Результаты -->
+    <string name="result_success">DFRoot: УСПЕХ</string>
+    <string name="result_ksud_exit">DFRoot: ошибка — ksud завершился с ненулевым кодом</string>
+    <string name="result_check_logs">DFRoot: ошибка — смотрите logcat и dmesg</string>
+    <string name="result_patch_failed">DFRoot: ошибка — не удалось пропатчить файлы</string>
+
+    <!-- Ошибки -->
+    <string name="err_no_su_manager">SU-менеджер не выбран</string>
+    <string name="err_su_manager_gone">%1$s больше не установлен</string>
+    <string name="err_libksud">libksud.so не найден в %1$s</string>
+    <string name="err_ipsec">IpSecManager недоступен (нужен API 28+)</string>
+    <string name="err_generic">исключение: %1$s</string>
+    <string name="run_header">=== запуск %1$s ===</string>
+
+    <!-- Информация об устройстве -->
+    <string name="di_header">Информация об устройстве:</string>
+    <string name="di_manufacturer">производитель</string>
+    <string name="di_model">модель</string>
+    <string name="di_android">android</string>
+    <string name="di_patch">патч безопасности</string>
+    <string name="di_kernel">ядро</string>
+    <string name="di_kmi">модуль ядра</string>
+    <string name="di_abi">abi</string>
+    <string name="di_selinux">selinux</string>
+    <string name="di_root">root</string>
+    <string name="di_unknown">неизвестно</string>
+    <string name="di_active">АКТИВЕН (в этой сессии)</string>
+    <string name="di_inactive">не активен</string>
+    <string name="warn_32bit">ВНИМАНИЕ: 32-битный user space не поддерживается, сборка только под arm64</string>
+    <string name="warn_no_ko">ВНИМАНИЕ: для ядра %1$s нет подходящего модуля — скорее всего устройство не поддерживается</string>
+    <string name="info_kmi_match">для ядра %1$s найден подходящий модуль</string>
+
+    <!-- Настройки -->
+    <string name="pref_boot_start_title">Запуск при включении</string>
+    <string name="pref_boot_start_summary">Автоматически запускать DFRoot при загрузке устройства</string>
+    <string name="pref_soft_reboot_title">Авто-мягкая перезагрузка</string>
+    <string name="pref_soft_reboot_summary">Работает и для ручного запуска, и для запуска при включении</string>
+    <string name="pref_disable_modules_title">Отключить модули KSU</string>
+    <string name="pref_disable_modules_summary">Включите, если сломанный модуль роняет устройство. Следующий запуск будет со всеми отключёнными модулями</string>
+    <string name="pref_auto_save_title">Автосохранение лога</string>
+    <string name="pref_auto_save_summary">Сохранять лог в Загрузки автоматически после каждого запуска</string>
+    <string name="pref_version_title">Версия</string>
+    <string name="pref_about_title">Исходники и обновления</string>
+    <string name="pref_about_summary">diabl0w/DFRoot на GitHub</string>
+
+</resources>

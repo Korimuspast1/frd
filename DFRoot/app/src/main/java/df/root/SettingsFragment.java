@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.preference.SwitchPreference;
 
@@ -32,19 +33,25 @@ public class SettingsFragment extends PreferenceFragment {
             return true;
         });
 
-        SwitchPreference softRebootPref = (SwitchPreference) findPreference("soft_reboot");
-        softRebootPref.setPersistent(false);
-        softRebootPref.setChecked(dePrefs.getBoolean("soft_reboot", false));
-        softRebootPref.setOnPreferenceChangeListener((pref, value) -> {
-            dePrefs.edit().putBoolean("soft_reboot", (Boolean) value).apply();
-            return true;
-        });
+        bindDeSwitch(dePrefs, "soft_reboot");
+        bindDeSwitch(dePrefs, "disable_modules");
+        bindDeSwitch(dePrefs, "auto_save_log");
 
-        SwitchPreference disableModulesPref = (SwitchPreference) findPreference("disable_modules");
-        disableModulesPref.setPersistent(false);
-        disableModulesPref.setChecked(dePrefs.getBoolean("disable_modules", false));
-        disableModulesPref.setOnPreferenceChangeListener((pref, value) -> {
-            dePrefs.edit().putBoolean("disable_modules", (Boolean) value).apply();
+        Preference versionPref = findPreference("version");
+        try {
+            versionPref.setSummary(ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionName);
+        } catch (PackageManager.NameNotFoundException ignored) {
+            versionPref.setSummary("?");
+        }
+    }
+
+    /** These switches are read by the native bootstrap, so they live in DE storage. */
+    private void bindDeSwitch(SharedPreferences dePrefs, String key) {
+        SwitchPreference pref = (SwitchPreference) findPreference(key);
+        pref.setPersistent(false);
+        pref.setChecked(dePrefs.getBoolean(key, false));
+        pref.setOnPreferenceChangeListener((p, value) -> {
+            dePrefs.edit().putBoolean(key, (Boolean) value).apply();
             return true;
         });
     }

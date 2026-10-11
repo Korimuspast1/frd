@@ -6,6 +6,19 @@
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
+    <TextView
+        android:id="@+id/statusView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="4dp"
+        android:textStyle="bold"
+        android:textSize="14sp"
+        android:textColor="?android:attr/textColorPrimary"
+        android:text="@string/status_inactive" />
+
     <Spinner
         android:id="@+id/spinnerSuManager"
         android:layout_width="match_parent"
@@ -16,6 +29,14 @@
         android:paddingBottom="8dp"
         android:background="@null"
         android:overlapAnchor="false" />
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -28,8 +49,33 @@
             android:id="@+id/btnRun"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="4"
-            android:text="Launch Root" />
+            android:layout_weight="5"
+            android:text="@string/run" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnSaveLog"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="12sp"
+            android:text="@string/save_log" />
+
+        <Button
+            android:id="@+id/btnCopyLog"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="12sp"
+            android:text="@string/copy_log" />
 
     </LinearLayout>
 
