@@ -73,7 +73,7 @@ public final class DeviceInfo {
                 if (v.equals("1")) return "enforcing";
                 if (v.equals("0")) return "permissive";
                 if (!v.isEmpty()) return v;
-            } catch (IOException | SecurityException | RuntimeException ignored) {
+            } catch (IOException | RuntimeException ignored) {
                 /* not readable on this device */
             }
         }
