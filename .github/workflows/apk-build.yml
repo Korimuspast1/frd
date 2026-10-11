@@ -7,8 +7,6 @@ on:
     paths:
       - 'DFRoot/**'
       - '.github/workflows/apk-build.yml'
-    paths-ignore:
-      - 'DFRoot/out/**'
 
 defaults:
   run:
