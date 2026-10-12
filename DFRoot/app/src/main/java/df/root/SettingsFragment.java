@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.preference.SwitchPreference;
@@ -36,6 +37,19 @@ public class SettingsFragment extends PreferenceFragment {
         bindDeSwitch(dePrefs, "soft_reboot");
         bindDeSwitch(dePrefs, "disable_modules");
         bindDeSwitch(dePrefs, "auto_save_log");
+
+        ListPreference retryPref = (ListPreference) findPreference("retry_count");
+        retryPref.setPersistent(false);
+        String retry = dePrefs.getString("retry_count", "0");
+        retryPref.setValue(retry);
+        retryPref.setSummary(retryPref.getEntry());
+        retryPref.setOnPreferenceChangeListener((pref, value) -> {
+            dePrefs.edit().putString("retry_count", (String) value).apply();
+            ListPreference lp = (ListPreference) pref;
+            lp.setValue((String) value);
+            lp.setSummary(lp.getEntry());
+            return true;
+        });
 
         Preference versionPref = findPreference("version");
         try {

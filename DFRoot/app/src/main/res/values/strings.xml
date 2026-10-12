@@ -66,4 +66,23 @@
     <string name="pref_about_title">Source code and updates</string>
     <string name="pref_about_summary">diabl0w/DFRoot on GitHub</string>
 
+
+    <!-- Совместимость / пояснения -->
+    <string name="result_not_vulnerable">Device is NOT vulnerable — root is impossible</string>
+    <string name="compat_warnings">Compatibility warnings:</string>
+    <string name="warn_kernel_61">Kernel 6.1: an "accidental mitigation" is known on many 6.1 kernels and the exploit does not work there (see the project FAQ)</string>
+    <string name="compat_last_not_vulnerable">The previous run ended with "device is not vulnerable". Re-running rarely helps; only a new DFRoot release or an unlocked bootloader would change that</string>
+
+    <string name="hint_success">Root obtained. If the SU manager does not see root, do a soft reboot manually</string>
+    <string name="hint_not_vulnerable">The exploit could not modify the page cache (the write-back verification failed). Causes: too new kernel, the manufacturer backported the official fix, or the accidental mitigation (common on kernel 6.1). There is no fix — neither a retry nor another DFRoot version will help. The only path to root is an unlocked bootloader plus KernelSU/Magisk</string>
+    <string name="hint_ksud">ksud exited with an error. Turn off Auto Soft Reboot and try again; also make sure the SU manager matches your device (Samsung needs diabl0w\'s KernelSU)</string>
+    <string name="hint_patch_failed">Failed to patch the files. Reboot and try again; if it repeats, the kernel is most likely not vulnerable</string>
+    <string name="hint_generic">Check logcat and dmesg. A SU manager must be installed and selected, and it must ship libksud.so</string>
+
+    <!-- Автоматизация -->
+    <string name="pref_retry_title">Retries on failure</string>
+    <string name="pref_retry_summary">How many extra attempts to make if the exploit fails</string>
+    <string name="retry_attempt">Retry %1$d of %2$d…</string>
+    <string name="retry_skipped">Looks like the device is not vulnerable — retries are pointless, stopping</string>
+    <string name="notif_channel">DFRoot result</string>
 </resources>

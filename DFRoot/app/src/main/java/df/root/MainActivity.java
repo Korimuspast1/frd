@@ -1,13 +1,18 @@
 package df.root;
 
+import android.Manifest;
 import android.app.ActionBar;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -37,8 +42,13 @@ public class MainActivity extends Activity implements IReporter {
 
     private static final String TAG = "dfroot";
     private static final String PREF_AUTO_SAVE_LOG = "auto_save_log";
+    private static final String PREF_RETRY_COUNT = "retry_count";
+    private static final String PREF_LAST_NOT_VULNERABLE = "last_not_vulnerable";
     private static final int MAX_LOG_CHARS = 256 * 1024;
     private static final long RUN_TIMEOUT_MS = 10 * 60 * 1000L;
+    private static final long RETRY_DELAY_MS = 4000L;
+    private static final int RESULT_NOTIFICATION_ID = 1001;
+    private static final int REQ_POST_NOTIFICATIONS = 1;
 
     private Button btnRun;
     private Button btnSaveLog;
@@ -131,6 +141,12 @@ public class MainActivity extends Activity implements IReporter {
         updateStatus();
 
         btnRun.setOnClickListener(v -> {
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                       != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        REQ_POST_NOTIFICATIONS);
+            }
             btnRun.setEnabled(false);
             btnSaveLog.setEnabled(false);
             btnCopyLog.setEnabled(false);
@@ -144,7 +160,18 @@ public class MainActivity extends Activity implements IReporter {
         btnCopyLog.setOnClickListener(v -> copyLog());
 
         // Print device diagnostics right away, before anything is launched.
-        mExec.execute(() -> DeviceInfo.report(this, this));
+        mExec.execute(() -> {
+            DeviceInfo.report(this, this);
+            List<String> warnings = Compat.warnings(this);
+            if (!warnings.isEmpty()) {
+                report("\n" + getString(R.string.compat_warnings) + "\n");
+                for (String w : warnings) report("* " + w + "\n");
+            }
+            if (prefs.getBoolean(PREF_LAST_NOT_VULNERABLE, false)) {
+                report("\n" + getString(R.string.compat_last_not_vulnerable) + "\n");
+            }
+            report("\n");
+        });
     }
 
     @Override
@@ -185,6 +212,43 @@ public class MainActivity extends Activity implements IReporter {
         statusView.setText(active ? R.string.status_active : R.string.status_inactive);
     }
 
+    private int retryCount() {
+        try {
+            return Integer.parseInt(mDeCtx.getSharedPreferences(ExploitRunner.PREFS_NAME,
+                    Context.MODE_PRIVATE).getString(PREF_RETRY_COUNT, "0"));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** Posts the run result as a notification. Skipped silently without permission. */
+    private void notifyResult(String title, String text) {
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                       != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            final String channelId = "dfroot_result";
+            if (nm.getNotificationChannel(channelId) == null) {
+                nm.createNotificationChannel(new NotificationChannel(channelId,
+                        getString(R.string.notif_channel), NotificationManager.IMPORTANCE_DEFAULT));
+            }
+            Notification n = new Notification.Builder(this, channelId)
+                    .setSmallIcon(R.drawable.ic_launcher_monochrome)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setAutoCancel(true)
+                    .build();
+            nm.notify(RESULT_NOTIFICATION_ID, n);
+        } catch (Exception e) {
+            Log.w(TAG, "notification failed", e);
+        }
+    }
+
     private boolean autoSaveEnabled() {
         return mDeCtx.getSharedPreferences(ExploitRunner.PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_AUTO_SAVE_LOG, false);
@@ -220,12 +284,39 @@ public class MainActivity extends Activity implements IReporter {
         PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dfroot:run");
         wl.acquire(RUN_TIMEOUT_MS); // keep the CPU awake while the exploit runs
         try {
-            int rc = ExploitRunner.run(mDeCtx, this);
-            String msg = rc == 0 ? getString(R.string.result_success)
-                       : rc == 1 ? getString(R.string.result_ksud_exit)
-                       : rc == 2 ? getString(R.string.result_check_logs)
-                       : getString(R.string.result_patch_failed);
-            mMain.post(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
+            final int attempts = 1 + Math.max(0, Math.min(2, retryCount()));
+            int rc = -1;
+            for (int i = 1; i <= attempts; i++) {
+                if (i > 1) {
+                    final String attemptLine = getString(R.string.retry_attempt, i, attempts);
+                    report("\n" + attemptLine + "\n");
+                    mMain.post(() -> Toast.makeText(this, attemptLine, Toast.LENGTH_SHORT).show());
+                    try {
+                        Thread.sleep(RETRY_DELAY_MS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                rc = ExploitRunner.run(mDeCtx, this);
+                if (rc == 0) break;
+                if (ResultExplainer.isNotVulnerable(mLog.toString())) {
+                    report("\n" + getString(R.string.retry_skipped) + "\n");
+                    break; // retrying a device that cannot be patched is pointless
+                }
+            }
+
+            final String log = mLog.toString();
+            final String title = ResultExplainer.title(this, rc, log);
+            final String hint = ResultExplainer.hint(this, rc, log);
+            report("\n" + hint + "\n");
+
+            mDeCtx.getSharedPreferences(ExploitRunner.PREFS_NAME, Context.MODE_PRIVATE).edit()
+                    .putBoolean(PREF_LAST_NOT_VULNERABLE, rc != 0 && ResultExplainer.isNotVulnerable(log))
+                    .apply();
+
+            mMain.post(() -> Toast.makeText(this, title, Toast.LENGTH_LONG).show());
+            notifyResult(title, hint);
 
             if (autoSaveEnabled()) {
                 final String text = mLog.toString();

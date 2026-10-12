@@ -66,4 +66,23 @@
     <string name="pref_about_title">Исходники и обновления</string>
     <string name="pref_about_summary">diabl0w/DFRoot на GitHub</string>
 
+
+    <!-- Совместимость / пояснения -->
+    <string name="result_not_vulnerable">Устройство НЕ уязвимо — root невозможен</string>
+    <string name="compat_warnings">Предупреждения совместимости:</string>
+    <string name="warn_kernel_61">Ядро 6.1: на многих ядрах 6.1 срабатывает «случайная митигация», и эксплойт не работает (см. FAQ проекта)</string>
+    <string name="compat_last_not_vulnerable">Прошлый запуск закончился сообщением «устройство не уязвимо». Повторы почти никогда не помогают: поможет только новая версия DFRoot или разблокированный загрузчик</string>
+
+    <string name="hint_success">Root получен. Если SU-менеджер не видит root — сделайте мягкую перезагрузку вручную</string>
+    <string name="hint_not_vulnerable">Эксплойт не смог изменить страницу в page cache (проверка после записи не прошла). Причины: слишком новое ядро, производитель перенёс официальную защиту либо сработала случайная митигация (часто на ядре 6.1). Исправления нет — ни повтор, ни другая версия DFRoot не помогут. Единственный путь к root — разблокированный загрузчик + KernelSU/Magisk</string>
+    <string name="hint_ksud">ksud завершился с ошибкой. Выключите «Авто-мягкую перезагрузку» и попробуйте снова; проверьте, что SU-менеджер подходит под устройство (для Samsung нужен KernelSU от diabl0w)</string>
+    <string name="hint_patch_failed">Не удалось пропатчить файлы. Перезагрузите устройство и попробуйте снова; если повторяется — скорее всего ядро не уязвимо</string>
+    <string name="hint_generic">Проверьте logcat и dmesg. Должен быть установлен и выбран SU-менеджер, внутри которого есть libksud.so</string>
+
+    <!-- Автоматизация -->
+    <string name="pref_retry_title">Повторы при неудаче</string>
+    <string name="pref_retry_summary">Сколько дополнительных попыток сделать, если эксплойт не удался</string>
+    <string name="retry_attempt">Повтор %1$d из %2$d…</string>
+    <string name="retry_skipped">Похоже, устройство не уязвимо — повторы бессмысленны, останавливаюсь</string>
+    <string name="notif_channel">Результат DFRoot</string>
 </resources>

@@ -24,6 +24,14 @@
         android:summary="@string/pref_auto_save_summary"
         android:defaultValue="false" />
 
+    <ListPreference
+        android:key="retry_count"
+        android:title="@string/pref_retry_title"
+        android:summary="@string/pref_retry_summary"
+        android:entries="@array/retry_entries"
+        android:entryValues="@array/retry_values"
+        android:defaultValue="0" />
+
     <Preference
         android:key="version"
         android:title="@string/pref_version_title"
