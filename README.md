@@ -24,6 +24,18 @@
   любой антивирус и Play Protect задетектят APK как `Android/Exploit` / «Rooting tool».
   Подробности — в `AUDIT.md`.
 
+## Готовые APK (`out/`)
+
+| Файл | Размер | SHA-256 |
+|---|---|---|
+| `out/DFRoot-release.apk` | 91.8 КБ | `894c032aa0fa5e309b94a86c941b57e6e06369b342bcccda91e1b42889a46994` |
+| `out/DFRoot-debug.apk` | 2.51 МБ | `9aad022eb8e0b5daf92cc2da63d0d6d68890cb9e092f033d7daa264cfc4d185f` |
+
+* Оба подписаны (APK Signature Scheme v2/v3).
+* Ставьте **release** — он минифицирован R8 и почти такого же размера, как официальный (80 КБ).
+* Debug-версия нужна только если хочется смотреть полные логи без обрезки; она тянет за собой
+  kotlin-stdlib из AGP (поэтому и 2.5 МБ) и пригодна только для отладки.
+
 ## Как собрать APK
 
 Вручную (нужен JDK 21 + Android SDK 37 + NDK или podman для LKM):
