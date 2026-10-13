@@ -3,6 +3,7 @@ package ai.iskra.chat.net;
 import android.text.Html;
 
 import ai.iskra.chat.model.SearchSource;
+import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
 
 import org.json.JSONArray;
@@ -25,6 +26,7 @@ public final class WebSearchService {
     private static final int MAX_RESULTS = 6;
 
     public List<SearchSource> search(String query) throws Exception {
+        DebugLog.log("SEARCH", "Query=\"" + query + "\"");
         List<SearchSource> results = new ArrayList<>();
         Exception firstError = null;
 
@@ -41,6 +43,7 @@ public final class WebSearchService {
         }
 
         if (results.isEmpty() && firstError != null) throw firstError;
+        DebugLog.log("SEARCH", "Combined unique results=" + results.size());
         if (results.size() > MAX_RESULTS) return new ArrayList<>(results.subList(0, MAX_RESULTS));
         return results;
     }
@@ -88,6 +91,7 @@ public final class WebSearchService {
             }
             event = parser.next();
         }
+        DebugLog.log("SEARCH", "Bing RSS results=" + results.size());
         return results;
     }
 
@@ -124,6 +128,7 @@ public final class WebSearchService {
             }
             if (!extract.isEmpty()) results.add(new SearchSource(title + " — Википедия", url, extract));
         }
+        DebugLog.log("SEARCH", "Wikipedia " + language + " results=" + results.size());
         return results;
     }
 

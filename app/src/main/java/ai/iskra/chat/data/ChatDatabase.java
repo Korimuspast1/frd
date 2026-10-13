@@ -9,6 +9,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 import ai.iskra.chat.model.Chat;
 import ai.iskra.chat.model.ChatMessage;
 import ai.iskra.chat.model.SearchSource;
+import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.JsonUtils;
 
 import java.util.ArrayList;
@@ -58,7 +59,9 @@ public final class ChatDatabase extends SQLiteOpenHelper {
         values.put("title", "Новый чат");
         values.put("created_at", now);
         values.put("updated_at", now);
-        return getWritableDatabase().insertOrThrow("chats", null, values);
+        long id = getWritableDatabase().insertOrThrow("chats", null, values);
+        DebugLog.log("DB", "Created chat id=" + id);
+        return id;
     }
 
     public Chat getChat(long id) {
@@ -68,7 +71,9 @@ public final class ChatDatabase extends SQLiteOpenHelper {
                 "(SELECT COUNT(*) FROM messages m WHERE m.chat_id=c.id) " +
                 "FROM chats c WHERE c.id=?";
         try (Cursor cursor = getReadableDatabase().rawQuery(sql, new String[]{String.valueOf(id)})) {
-            return cursor.moveToFirst() ? chatFromCursor(cursor) : null;
+            Chat chat = cursor.moveToFirst() ? chatFromCursor(cursor) : null;
+            DebugLog.log("DB", "Read chat id=" + id + "; found=" + (chat != null));
+            return chat;
         }
     }
 
@@ -92,6 +97,7 @@ public final class ChatDatabase extends SQLiteOpenHelper {
         try (Cursor cursor = getReadableDatabase().rawQuery(sql, args)) {
             while (cursor.moveToNext()) result.add(chatFromCursor(cursor));
         }
+        DebugLog.log("DB", "Listed chats; filter=\"" + query + "\"; count=" + result.size());
         return result;
     }
 
@@ -119,6 +125,7 @@ public final class ChatDatabase extends SQLiteOpenHelper {
                 ));
             }
         }
+        DebugLog.log("DB", "Read messages for chat=" + chatId + "; count=" + result.size());
         return result;
     }
 
@@ -139,6 +146,9 @@ public final class ChatDatabase extends SQLiteOpenHelper {
             chat.put("updated_at", now);
             db.update("chats", chat, "id=?", new String[]{String.valueOf(chatId)});
             db.setTransactionSuccessful();
+            DebugLog.log("DB", "Inserted message id=" + id + ", chat=" + chatId +
+                    ", role=" + role + ", chars=" + (content == null ? 0 : content.length()) +
+                    ", sources=" + (sources == null ? 0 : sources.size()));
             return id;
         } finally {
             db.endTransaction();
@@ -152,14 +162,17 @@ public final class ChatDatabase extends SQLiteOpenHelper {
         values.put("title", clean);
         values.put("updated_at", System.currentTimeMillis());
         getWritableDatabase().update("chats", values, "id=?", new String[]{String.valueOf(chatId)});
+        DebugLog.log("DB", "Renamed chat id=" + chatId + " to \"" + clean + "\"");
     }
 
     public void deleteChat(long chatId) {
-        getWritableDatabase().delete("chats", "id=?", new String[]{String.valueOf(chatId)});
+        int rows = getWritableDatabase().delete("chats", "id=?", new String[]{String.valueOf(chatId)});
+        DebugLog.log("DB", "Deleted chat id=" + chatId + "; rows=" + rows);
     }
 
     public void clearAll() {
-        getWritableDatabase().delete("chats", null, null);
+        int rows = getWritableDatabase().delete("chats", null, null);
+        DebugLog.log("DB", "Cleared all chats; rows=" + rows);
     }
 
     public int countChats() {

@@ -1,5 +1,7 @@
 package ai.iskra.chat.net;
 
+import ai.iskra.chat.util.DebugLog;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -15,10 +17,11 @@ final class HttpUtils {
     private HttpUtils() {}
 
     static HttpURLConnection configure(HttpURLConnection connection) {
+        DebugLog.log("HTTP", "OPEN " + connection.getURL());
         connection.setConnectTimeout(12_000);
         connection.setReadTimeout(20_000);
         connection.setUseCaches(false);
-        connection.setRequestProperty("User-Agent", "IskraAI/1.0 (Android; web research assistant)");
+        connection.setRequestProperty("User-Agent", "kvsai/1.1 (Android; web research assistant)");
         connection.setRequestProperty("Accept-Language", "ru,en;q=0.7");
         return connection;
     }
@@ -29,7 +32,11 @@ final class HttpUtils {
                 ? connection.getInputStream()
                 : connection.getErrorStream();
         String body = stream == null ? "" : readUtf8(stream);
+        DebugLog.log("HTTP", connection.getRequestMethod() + " " + connection.getURL().getHost() +
+                connection.getURL().getPath() + " → " + code + "; responseChars=" + body.length());
         if (code < 200 || code >= 300) {
+            DebugLog.log("HTTP", "Non-success response " + code + ": " +
+                    (body.length() > 240 ? body.substring(0, 240) + "…" : body));
             throw new HttpException(code, body);
         }
         return body;

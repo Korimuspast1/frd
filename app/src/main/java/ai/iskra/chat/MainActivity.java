@@ -41,7 +41,9 @@ import ai.iskra.chat.model.AssistantReply;
 import ai.iskra.chat.model.Chat;
 import ai.iskra.chat.model.ChatMessage;
 import ai.iskra.chat.ui.ChatListAdapter;
+import ai.iskra.chat.ui.DebugConsoleView;
 import ai.iskra.chat.ui.MessageAdapter;
+import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
 import ai.iskra.chat.util.Ui;
 
@@ -80,9 +82,12 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         configureWindow();
-        database = new ChatDatabase(this);
         settings = new AppSettings(this);
-        assistant = new AssistantEngine();
+        DebugLog.initialize(settings.isDebugEnabled());
+        DebugLog.log("APP", "kvsai 1.1.0 starting; Android=" + Build.VERSION.RELEASE +
+                ", sdk=" + Build.VERSION.SDK_INT + ", device=" + Build.MANUFACTURER + " " + Build.MODEL);
+        database = new ChatDatabase(this);
+        assistant = new AssistantEngine(this);
 
         host = new FrameLayout(this);
         host.setBackgroundColor(Ui.BG);
@@ -116,6 +121,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        DebugLog.log("LIFECYCLE", "onResume screen=" + screen);
         if (screen == Screen.HOME && chatListAdapter != null) refreshChats();
         if (screen == Screen.CHAT && currentMode != null) {
             currentMode.setText(settings.snapshot().modeLabel());
@@ -124,6 +130,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        DebugLog.log("LIFECYCLE", "onDestroy; finishing=" + isFinishing());
         assistant.shutdown();
         database.close();
         super.onDestroy();
@@ -150,9 +157,10 @@ public final class MainActivity extends Activity {
         currentChatId = -1;
         host.removeAllViews();
 
+        DebugLog.log("NAV", "Open HOME screen");
         LinearLayout root = vertical();
         root.setBackgroundColor(Ui.BG);
-        host.addView(root, match());
+        mountScreen(root);
         root.addView(buildHomeHeader());
         root.addView(buildHero());
 
@@ -202,8 +210,8 @@ public final class MainActivity extends Activity {
 
         LinearLayout names = vertical();
         names.setPadding(Ui.dp(this, 12), 0, 0, 0);
-        names.addView(text("Искра AI", 20, Ui.TEXT, true));
-        names.addView(text("умный поиск без лишнего", 12, Ui.MUTED, false));
+        names.addView(text("kvsai", 20, Ui.TEXT, true));
+        names.addView(text("AI, интернет и данные устройства", 12, Ui.MUTED, false));
         header.addView(names, new LinearLayout.LayoutParams(0, wrap(), 1f));
 
         ImageButton settingsButton = Ui.iconButton(this, R.drawable.ic_settings, "Настройки");
@@ -311,6 +319,7 @@ public final class MainActivity extends Activity {
 
     private void createChat() {
         long id = database.createChat();
+        DebugLog.log("UI", "New chat button; created id=" + id);
         showChat(id);
     }
 
@@ -368,9 +377,10 @@ public final class MainActivity extends Activity {
         currentChatId = chatId;
         host.removeAllViews();
 
+        DebugLog.log("NAV", "Open CHAT screen id=" + chatId + ", title=\"" + chat.title + "\"");
         LinearLayout root = vertical();
         root.setBackgroundColor(Ui.BG);
-        host.addView(root, match());
+        mountScreen(root);
         root.addView(buildChatHeader(chat));
 
         FrameLayout content = new FrameLayout(this);
@@ -452,9 +462,9 @@ public final class MainActivity extends Activity {
         subtitleParams.bottomMargin = Ui.dp(this, 19);
         empty.addView(subtitle, subtitleParams);
 
-        addSuggestion(empty, "Объясни простыми словами, как работает искусственный интеллект");
-        addSuggestion(empty, "Найди свежую информацию про Android");
-        addSuggestion(empty, "Помоги составить план обучения программированию");
+        addSuggestion(empty, "Какая погода завтра в Москве?");
+        addSuggestion(empty, "Покажи характеристики моего телефона");
+        addSuggestion(empty, "Напиши пример кода на Python с пояснениями");
         return scroll;
     }
 
@@ -543,6 +553,8 @@ public final class MainActivity extends Activity {
 
     private void askAssistant(long chatId, String question, boolean addUserMessage) {
         if (question.isEmpty() || requestRunning) return;
+        DebugLog.log("CHAT", (addUserMessage ? "Send" : "Retry") + " chat=" + chatId +
+                ", chars=" + question.length() + ", text=\"" + question + "\"");
         if (addUserMessage) {
             int oldCount = database.countMessages(chatId);
             database.addMessage(chatId, ChatMessage.ROLE_USER, question, Collections.emptyList());
@@ -569,6 +581,8 @@ public final class MainActivity extends Activity {
         assistant.ask(question, history, snapshot, new AssistantEngine.Callback() {
             @Override
             public void onSuccess(AssistantReply reply) {
+                DebugLog.log("CHAT", "Assistant callback success chat=" + chatId +
+                        ", chars=" + reply.text.length() + ", sources=" + reply.sources.size());
                 if (database.getChat(chatId) != null) {
                     database.addMessage(chatId, ChatMessage.ROLE_ASSISTANT, reply.text, reply.sources);
                 }
@@ -585,6 +599,7 @@ public final class MainActivity extends Activity {
 
             @Override
             public void onError(String error) {
+                DebugLog.log("CHAT", "Assistant callback error chat=" + chatId + ": " + error);
                 requestRunning = false;
                 requestChatId = -1;
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
@@ -621,6 +636,7 @@ public final class MainActivity extends Activity {
     }
 
     private void openSettings() {
+        DebugLog.log("UI", "Settings button from " + screen);
         settingsReturnScreen = screen;
         settingsReturnChatId = currentChatId;
         showSettings();
@@ -630,9 +646,10 @@ public final class MainActivity extends Activity {
     private void showSettings() {
         screen = Screen.SETTINGS;
         host.removeAllViews();
+        DebugLog.log("NAV", "Open SETTINGS screen; return=" + settingsReturnScreen);
         LinearLayout root = vertical();
         root.setBackgroundColor(Ui.BG);
-        host.addView(root, match());
+        mountScreen(root);
 
         LinearLayout header = horizontal(Gravity.CENTER_VERTICAL);
         header.setPadding(Ui.dp(this, 10), Ui.dp(this, 9), Ui.dp(this, 16), Ui.dp(this, 9));
@@ -662,7 +679,7 @@ public final class MainActivity extends Activity {
         webSwitch.setChecked(settings.isWebEnabled());
         webSwitch.setButtonTintList(ColorStateList.valueOf(Ui.VIOLET));
         webCard.addView(webSwitch, matchWidthWrap());
-        TextView webHint = text("Бесплатно и без API-ключа. Искра найдёт материалы и покажет ссылки на источники.",
+        TextView webHint = text("Бесплатно и без API-ключа. kvsai найдёт материалы и покажет ссылки на источники.",
                 13, Ui.MUTED, false);
         webHint.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams webHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
@@ -725,6 +742,28 @@ public final class MainActivity extends Activity {
         tipParams.bottomMargin = Ui.dp(this, 18);
         content.addView(localTip, tipParams);
 
+        content.addView(sectionLabel("РАЗРАБОТКА"));
+        LinearLayout debugCard = settingsCard();
+        Switch debugSwitch = new Switch(this);
+        debugSwitch.setText("Debug mode");
+        debugSwitch.setTextColor(Ui.TEXT);
+        debugSwitch.setTextSize(16);
+        debugSwitch.setChecked(settings.isDebugEnabled());
+        debugCard.addView(debugSwitch, matchWidthWrap());
+        TextView debugHint = text("Показывает снизу живую консоль: навигацию, запросы, маршрутизацию, " +
+                "операции базы, HTTP-статусы, время выполнения и ошибки. API-ключи всегда скрываются.",
+                13, Ui.MUTED, false);
+        debugHint.setLineSpacing(0, 1.08f);
+        LinearLayout.LayoutParams debugHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+        debugHintParams.topMargin = Ui.dp(this, 7);
+        debugCard.addView(debugHint, debugHintParams);
+        Button clearDebug = inlineButton("Очистить debug-консоль");
+        clearDebug.setOnClickListener(v -> DebugLog.clear());
+        LinearLayout.LayoutParams clearDebugParams = new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 42));
+        clearDebugParams.topMargin = Ui.dp(this, 10);
+        debugCard.addView(clearDebug, clearDebugParams);
+        content.addView(debugCard, cardParams());
+
         Button save = primaryButton("Сохранить настройки");
         save.setOnClickListener(v -> {
             String endpointValue = endpoint.getText().toString().trim();
@@ -740,8 +779,13 @@ public final class MainActivity extends Activity {
                 return;
             }
             try {
-                settings.save(aiSwitch.isChecked(), webSwitch.isChecked(),
+                settings.save(aiSwitch.isChecked(), webSwitch.isChecked(), debugSwitch.isChecked(),
                         endpointValue, modelValue, apiKey.getText().toString());
+                DebugLog.setEnabled(debugSwitch.isChecked());
+                DebugLog.log("SETTINGS", "Saved: ai=" + aiSwitch.isChecked() +
+                        ", web=" + webSwitch.isChecked() + ", debug=" + debugSwitch.isChecked() +
+                        ", model=" + modelValue + ", endpoint=" + endpointValue +
+                        ", newApiKeyProvided=" + !apiKey.getText().toString().isEmpty());
                 Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show();
                 onBackPressed();
             } catch (Exception error) {
@@ -766,7 +810,7 @@ public final class MainActivity extends Activity {
         dataCard.addView(clear, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 44)));
         content.addView(dataCard, cardParams());
 
-        TextView version = text("Искра AI 1.0.0  •  Сделано для Android", 12, Ui.DIM, false);
+        TextView version = text("kvsai 1.1.0  •  Android 8.0+", 12, Ui.DIM, false);
         version.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         versionParams.topMargin = Ui.dp(this, 8);
@@ -877,6 +921,18 @@ public final class MainActivity extends Activity {
         return view;
     }
 
+    private void mountScreen(View screenView) {
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setBackgroundColor(Ui.BG);
+        shell.addView(screenView, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
+        if (settings.isDebugEnabled()) {
+            DebugConsoleView console = new DebugConsoleView(this);
+            shell.addView(console, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 180)));
+        }
+        host.addView(shell, match());
+    }
+
     private LinearLayout vertical() {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -922,8 +978,10 @@ public final class MainActivity extends Activity {
 
     private void openUrl(String value) {
         try {
+            DebugLog.log("UI", "Open external URL: " + value);
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(value)));
         } catch (Exception error) {
+            DebugLog.error("UI", error);
             Toast.makeText(this, "Не удалось открыть ссылку", Toast.LENGTH_SHORT).show();
         }
     }

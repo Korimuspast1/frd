@@ -1,4 +1,4 @@
-name: Build Iskra AI APK
+name: Build kvsai APK
 
 on:
   workflow_dispatch:
@@ -35,18 +35,25 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Create temporary release signing key
+      # AOSP's deliberately public test key keeps personal test builds
+      # update-compatible without storing a private production key.
+      - name: Prepare stable test signing key
         shell: bash
         run: |
-          keytool -genkeypair -keystore release-build.jks -storetype JKS \
-            -storepass iskra-build -keypass iskra-build -alias iskra-ai \
-            -keyalg RSA -keysize 3072 -validity 3650 \
-            -dname "CN=Iskra AI, O=Local Build"
+          set -euo pipefail
+          AOSP_REV=045a3d6a3e359633a14853a5a5e1e4f2a11cbdae
+          BASE="https://raw.githubusercontent.com/aosp-mirror/platform_build/${AOSP_REV}/target/product/security"
+          curl --fail --silent --show-error --location "$BASE/testkey.pk8" -o testkey.pk8
+          curl --fail --silent --show-error --location "$BASE/testkey.x509.pem" -o testkey.x509.pem
+          openssl pkcs8 -inform DER -in testkey.pk8 -out testkey.pem
+          openssl pkcs12 -export -in testkey.x509.pem -inkey testkey.pem \
+            -out kvsai-test.p12 -name kvsai -passout pass:kvsai-test
           cat > signing.properties <<'EOF'
-          KEYSTORE_FILE=release-build.jks
-          KEYSTORE_PASSWORD=iskra-build
-          KEY_ALIAS=iskra-ai
-          KEY_PASSWORD=iskra-build
+          KEYSTORE_FILE=kvsai-test.p12
+          KEYSTORE_TYPE=PKCS12
+          KEYSTORE_PASSWORD=kvsai-test
+          KEY_ALIAS=kvsai
+          KEY_PASSWORD=kvsai-test
           EOF
 
       - name: Build debug and release APKs
@@ -57,8 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          cp "$(find app/build/outputs/apk/release -name '*.apk' -type f | head -1)" artifacts/IskraAI-release.apk
-          cp "$(find app/build/outputs/apk/debug -name '*.apk' -type f | head -1)" artifacts/IskraAI-debug.apk
+          cp "$(find app/build/outputs/apk/release -name '*.apk' -type f | head -1)" artifacts/kvsai-release.apk
+          cp "$(find app/build/outputs/apk/debug -name '*.apk' -type f | head -1)" artifacts/kvsai-debug.apk
           cd artifacts
           sha256sum *.apk > SHA256SUMS.txt
           ls -lh
@@ -67,26 +74,25 @@ jobs:
       - name: Upload APKs
         uses: actions/upload-artifact@v7
         with:
-          name: IskraAI-APK
+          name: kvsai-APK
           path: artifacts/*
           if-no-files-found: error
           retention-days: 30
 
-      # Keep the installable release directly in this working branch. Changes
-      # under out/ do not match the workflow paths, so this does not loop.
       - name: Publish release APK in the branch
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p out
-          cp artifacts/IskraAI-release.apk out/IskraAI-release.apk
-          (cd out && sha256sum IskraAI-release.apk > SHA256SUMS.txt)
+          rm -f out/*-release.apk out/SHA256SUMS.txt
+          cp artifacts/kvsai-release.apk out/kvsai-release.apk
+          (cd out && sha256sum kvsai-release.apk > SHA256SUMS.txt)
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f out/IskraAI-release.apk out/SHA256SUMS.txt
+          git add -A out
           if git diff --cached --quiet; then
             echo "APK is unchanged"
           else
-            git commit -m "build: publish Iskra AI APK (run ${{ github.run_number }})"
+            git commit -m "build: publish kvsai APK (run ${{ github.run_number }})"
             git push origin HEAD:"${GITHUB_REF_NAME}"
           fi

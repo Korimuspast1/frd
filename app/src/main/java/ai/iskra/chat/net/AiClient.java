@@ -2,6 +2,7 @@ package ai.iskra.chat.net;
 
 import ai.iskra.chat.model.ChatMessage;
 import ai.iskra.chat.model.SearchSource;
+import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
 
 import org.json.JSONArray;
@@ -29,7 +30,7 @@ public final class AiClient {
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
         }
-        connection.setRequestProperty("X-Title", "Iskra AI");
+        connection.setRequestProperty("X-Title", "kvsai");
 
         JSONObject request = new JSONObject();
         request.put("model", model);
@@ -52,6 +53,9 @@ public final class AiClient {
         request.put("messages", messages);
 
         byte[] body = request.toString().getBytes(StandardCharsets.UTF_8);
+        DebugLog.log("AI", "POST /chat/completions; model=" + model + ", messages=" +
+                messages.length() + ", requestBytes=" + body.length + ", auth=" +
+                (apiKey != null && !apiKey.trim().isEmpty()));
         connection.setFixedLengthStreamingMode(body.length);
         try (OutputStream output = connection.getOutputStream()) {
             output.write(body);
@@ -65,7 +69,9 @@ public final class AiClient {
         } finally {
             connection.disconnect();
         }
-        return extractContent(new JSONObject(response));
+        String content = extractContent(new JSONObject(response));
+        DebugLog.log("AI", "Provider response parsed; chars=" + content.length());
+        return content;
     }
 
     private JSONObject message(String role, String content) throws Exception {
@@ -78,8 +84,11 @@ public final class AiClient {
     private String systemPrompt(List<SearchSource> sources) {
         String date = new SimpleDateFormat("dd.MM.yyyy", new Locale("ru", "RU")).format(new Date());
         StringBuilder prompt = new StringBuilder(
-                "Ты — Искра, полезный русскоязычный ассистент. Отвечай ясно, по существу и честно. " +
-                "Не выдумывай факты. Сегодня " + date + ". ");
+                "Ты — kvsai, полезный русскоязычный ассистент. Отвечай ясно, по существу и честно. " +
+                "Не выдумывай факты. Сегодня " + date + ". " +
+                "Оформляй любой многострочный код только fenced-блоком Markdown: три обратные кавычки, " +
+                "точное имя языка (python, kotlin, javascript, json и т. п.), перевод строки, код и закрывающие " +
+                "три кавычки. Для обычного текста без синтаксиса используй язык plaintext. ");
         if (sources != null && !sources.isEmpty()) {
             prompt.append("Ниже результаты веб-поиска. Используй их как контекст, ставь ссылки на источники " +
                     "в формате [1], [2] после соответствующих утверждений. Если данных мало, прямо скажи об этом.\n\n");

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "IskraAI"
+rootProject.name = "kvsai"
 include(":app")

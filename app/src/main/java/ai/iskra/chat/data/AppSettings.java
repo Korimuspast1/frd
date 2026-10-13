@@ -27,6 +27,10 @@ public final class AppSettings {
         return preferences.getBoolean("web_enabled", true);
     }
 
+    public boolean isDebugEnabled() {
+        return preferences.getBoolean("debug_enabled", false);
+    }
+
     public String getEndpoint() {
         return preferences.getString("endpoint", DEFAULT_ENDPOINT);
     }
@@ -43,13 +47,14 @@ public final class AppSettings {
         return secureKeyStore.hasKey();
     }
 
-    public void save(boolean aiEnabled, boolean webEnabled, String endpoint,
-                     String model, String newApiKey) throws Exception {
+    public void save(boolean aiEnabled, boolean webEnabled, boolean debugEnabled,
+                     String endpoint, String model, String newApiKey) throws Exception {
         String cleanEndpoint = endpoint == null ? "" : endpoint.trim();
         String cleanModel = model == null ? "" : model.trim();
         preferences.edit()
                 .putBoolean("ai_enabled", aiEnabled)
                 .putBoolean("web_enabled", webEnabled)
+                .putBoolean("debug_enabled", debugEnabled)
                 .putString("endpoint", cleanEndpoint.isEmpty() ? DEFAULT_ENDPOINT : cleanEndpoint)
                 .putString("model", cleanModel.isEmpty() ? DEFAULT_MODEL : cleanModel)
                 .apply();

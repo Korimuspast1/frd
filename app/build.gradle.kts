@@ -15,11 +15,11 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "ai.iskra.chat"
+        applicationId = "app.kvsai.chat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -27,6 +27,7 @@ android {
             if (signingPropsFile.exists()) {
                 storeFile = rootProject.file(signingProps.getProperty("KEYSTORE_FILE"))
                 storePassword = signingProps.getProperty("KEYSTORE_PASSWORD")
+                storeType = signingProps.getProperty("KEYSTORE_TYPE", "JKS")
                 keyAlias = signingProps.getProperty("KEY_ALIAS")
                 keyPassword = signingProps.getProperty("KEY_PASSWORD")
             }
@@ -69,7 +70,7 @@ androidComponents {
         val variantName = variant.name
         variant.outputs.forEach { output ->
             output.outputFileName.set(
-                output.versionName.map { version -> "IskraAI-${variantName}-v${version}.apk" }
+                output.versionName.map { version -> "kvsai-${variantName}-v${version}.apk" }
             )
         }
     }
