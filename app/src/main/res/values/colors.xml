@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#080B12</color>
+    <color name="ink_raised">#0E131D</color>
+    <color name="card">#121925</color>
+    <color name="card_high">#192232</color>
+    <color name="violet">#8B5CF6</color>
+    <color name="violet_dark">#6437D8</color>
+    <color name="cyan">#39D9C8</color>
+    <color name="text_primary">#F5F7FB</color>
+    <color name="text_secondary">#A7B0C0</color>
+    <color name="danger">#FF6B7A</color>
+</resources>

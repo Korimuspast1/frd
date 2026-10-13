@@ -1,0 +1,19 @@
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+signing.properties
+*.jks
+*.keystore
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Editors / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Temporary artifact downloads
+artifacts/

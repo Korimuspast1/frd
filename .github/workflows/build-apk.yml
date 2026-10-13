@@ -1,0 +1,73 @@
+name: Build Iskra AI APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['arena/**']
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Create temporary release signing key
+        shell: bash
+        run: |
+          keytool -genkeypair -keystore release-build.jks -storetype JKS \
+            -storepass iskra-build -keypass iskra-build -alias iskra-ai \
+            -keyalg RSA -keysize 3072 -validity 3650 \
+            -dname "CN=Iskra AI, O=Local Build"
+          cat > signing.properties <<'EOF'
+          KEYSTORE_FILE=release-build.jks
+          KEYSTORE_PASSWORD=iskra-build
+          KEY_ALIAS=iskra-ai
+          KEY_PASSWORD=iskra-build
+          EOF
+
+      - name: Build debug and release APKs
+        run: ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Collect APKs and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp "$(find app/build/outputs/apk/release -name '*.apk' -type f | head -1)" artifacts/IskraAI-release.apk
+          cp "$(find app/build/outputs/apk/debug -name '*.apk' -type f | head -1)" artifacts/IskraAI-debug.apk
+          cd artifacts
+          sha256sum *.apk > SHA256SUMS.txt
+          ls -lh
+          cat SHA256SUMS.txt
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: IskraAI-APK
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 30
