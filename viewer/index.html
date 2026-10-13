@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KVS Studio — плеер формата .kvs</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎞️</text></svg>">
+</head>
+<body>
+<header>
+  <div class="logo">
+    <span class="dot"></span>
+    <h1>KVS <small>Korium Vector Sequence</small></h1>
+  </div>
+  <div class="tagline">собственный формат векторной анимации + движок, который сам его расшифровывает</div>
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept=".kvs,application/octet-stream" hidden>
+    <span>открыть .kvs…</span>
+  </label>
+</header>
+
+<main>
+  <aside id="gallery">
+    <h2>Галерея примеров</h2>
+    <div id="cards"></div>
+    <div class="hint">Перетащите файл .kvs в окно — плеер откроет его без загрузки на сервер: всё декодируется в браузере.</div>
+  </aside>
+
+  <section id="stage">
+    <div class="canvas-wrap">
+      <canvas id="canvas" width="512" height="512"></canvas>
+      <div id="placeholder">выберите пример слева или перетащите свой .kvs</div>
+    </div>
+
+    <div class="controls">
+      <button id="play" title="play/pause">▶</button>
+      <button id="step-back" title="кадр назад">⏮</button>
+      <input type="range" id="seek" min="0" max="100" value="0" step="0.01">
+      <button id="step-fwd" title="кадр вперёд">⏭</button>
+      <span id="timecode">0 / 0</span>
+      <select id="speed">
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+      </select>
+    </div>
+
+    <div id="meta" class="meta">
+      <div class="meta-grid" id="meta-grid"></div>
+      <details id="scene-json">
+        <summary>расшифрованная сцена (JSON)</summary>
+        <pre id="json"></pre>
+      </details>
+      <details id="scene-layers">
+        <summary>слои</summary>
+        <table id="layers"></table>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>Формат: <code>KVS\x1E</code> · контейнер v1 · сжатие zlib/gzip · движки: Python (software) + JS (Canvas2D)</span>
+</footer>
+
+<script src="/static/kvs-player.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

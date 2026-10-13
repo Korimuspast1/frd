@@ -1,0 +1,1957 @@
+{
+ "name": "Pulsing Heart",
+ "meta": {
+  "generator": "kvs-python/1.0",
+  "format": "kvs/1",
+  "author": "KVS examples"
+ },
+ "canvas": {
+  "width": 512,
+  "height": 512,
+  "fps": 60,
+  "frames": 90,
+  "background": "#12001f"
+ },
+ "assets": [
+  {
+   "id": "bg",
+   "type": "linear",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#2a0a3d"
+    },
+    {
+     "position": 1.0,
+     "color": "#0a0213"
+    }
+   ],
+   "angle": 90,
+   "normalized": true
+  },
+  {
+   "id": "heart",
+   "type": "linear",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#ff5f8f"
+    },
+    {
+     "position": 0.5,
+     "color": "#c81d55"
+    },
+    {
+     "position": 1.0,
+     "color": "#7a0f3a"
+    }
+   ],
+   "angle": 115,
+   "normalized": true
+  },
+  {
+   "id": "glow",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#ff9ec4"
+    },
+    {
+     "position": 0.5,
+     "color": "#ff2d6f"
+    },
+    {
+     "position": 1.0,
+     "color": "#3a0018"
+    }
+   ],
+   "center": [
+    0.5,
+    0.42
+   ],
+   "radius": 0.55,
+   "normalized": true
+  }
+ ],
+ "layers": [
+  {
+   "name": "background",
+   "geometry": {
+    "type": "rect",
+    "position": [
+     256.0,
+     256.0
+    ],
+    "size": [
+     512,
+     512
+    ]
+   },
+   "fill": {
+    "gradient": "bg"
+   }
+  },
+  {
+   "name": "glow",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     250
+    ],
+    "radius": 190
+   },
+   "fill": {
+    "gradient": "glow",
+    "opacity": 0.85
+   },
+   "transform": {
+    "anchor": [
+     256,
+     250
+    ],
+    "position": [
+     256,
+     250
+    ],
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        92,
+        92
+       ],
+       "in-out-sine"
+      ],
+      [
+       22,
+       [
+        112,
+        112
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        96,
+        96
+       ],
+       "in-out-sine"
+      ],
+      [
+       67,
+       [
+        110,
+        110
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        92,
+        92
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.45,
+       "in-out-sine"
+      ],
+      [
+       22,
+       0.85,
+       "in-out-sine"
+      ],
+      [
+       45,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       67,
+       0.8,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.45,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "heart",
+   "geometry": {
+    "type": "path",
+    "subpaths": [
+     {
+      "points": [
+       [
+        256.0,
+        192.789
+       ],
+       [
+        256.0,
+        161.211,
+        232.316,
+        121.737,
+        192.842,
+        121.737
+       ],
+       [
+        141.526,
+        121.737,
+        106.0,
+        165.158,
+        106.0,
+        212.526
+       ],
+       [
+        106.0,
+        279.632,
+        169.158,
+        319.105,
+        256.0,
+        390.158
+       ],
+       [
+        342.842,
+        319.105,
+        406.0,
+        279.632,
+        406.0,
+        212.526
+       ],
+       [
+        406.0,
+        165.158,
+        370.474,
+        121.737,
+        319.158,
+        121.737
+       ],
+       [
+        279.684,
+        121.737,
+        256.0,
+        161.211,
+        256.0,
+        192.789
+       ]
+      ],
+      "closed": true
+     }
+    ]
+   },
+   "fill": {
+    "gradient": "heart"
+   },
+   "stroke": {
+    "color": "#ffd9e6",
+    "width": 3,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.35
+   },
+   "transform": {
+    "anchor": [
+     256,
+     252
+    ],
+    "position": [
+     256,
+     252
+    ],
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        100,
+        100
+       ],
+       "in-out-sine"
+      ],
+      [
+       20,
+       [
+        113,
+        113
+       ],
+       "in-out-sine"
+      ],
+      [
+       40,
+       [
+        99,
+        99
+       ],
+       "in-out-sine"
+      ],
+      [
+       60,
+       [
+        111,
+        111
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        100,
+        100
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "rotation": {
+     "k": [
+      [
+       0,
+       -2.0,
+       "in-out-sine"
+      ],
+      [
+       45,
+       2.0,
+       "in-out-sine"
+      ],
+      [
+       90,
+       -2.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   }
+  },
+  {
+   "name": "shine",
+   "geometry": {
+    "type": "ellipse",
+    "position": [
+     200,
+     190
+    ],
+    "size": [
+     86,
+     54
+    ]
+   },
+   "fill": {
+    "color": "#ffffff",
+    "opacity": 0.22
+   },
+   "transform": {
+    "anchor": [
+     200,
+     190
+    ],
+    "position": [
+     200,
+     190
+    ],
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        100,
+        100
+       ],
+       "in-out-sine"
+      ],
+      [
+       30,
+       [
+        112,
+        104
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        100,
+        100
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "rotation": -28
+   }
+  },
+  {
+   "name": "spark0",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     169.28240745574348,
+     542
+    ],
+    "radius": 5.321722716242878
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     169.28240745574348,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        169.28240745574348,
+        -55.6563142042869
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        133.52607593151092,
+        -657.6563142042869
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark1",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     462.33190015253234,
+     542
+    ],
+    "radius": 9.79127109041031
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     462.33190015253234,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        462.33190015253234,
+        341.5099863808183
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        448.129755396922,
+        -260.4900136191817
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark2",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     374.3766268335174,
+     542
+    ],
+    "radius": 9.32982755374621
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     374.3766268335174,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        374.3766268335174,
+        528.2284209086692
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        330.26369735098615,
+        -73.77157909133075
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark3",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     227.01521986490823,
+     542
+    ],
+    "radius": 8.053207948828678
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     227.01521986490823,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        227.01521986490823,
+        404.9447273951698
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        182.7084079513831,
+        -197.05527260483018
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark4",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     283.4641957448163,
+     542
+    ],
+    "radius": 4.0850622221292285
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     283.4641957448163,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        283.4641957448163,
+        210.17628980994988
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        278.6313005749282,
+        -391.8237101900501
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark5",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     457.1280748253353,
+     542
+    ],
+    "radius": 6.90369085264564
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     457.1280748253353,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        457.1280748253353,
+        264.3901093678503
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        450.5065767781374,
+        -337.6098906321497
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark6",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     210.20091134039728,
+     542
+    ],
+    "radius": 8.729047664314997
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     210.20091134039728,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        210.20091134039728,
+        39.56247812023503
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        231.30463395002516,
+        -562.437521879765
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark7",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     313.6369725547903,
+     542
+    ],
+    "radius": 3.733183689291209
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     313.6369725547903,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        313.6369725547903,
+        -7.472408598043216
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        323.7221983376528,
+        -609.4724085980432
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark8",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     219.28008438799534,
+     542
+    ],
+    "radius": 3.1768828361187516
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     219.28008438799534,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        219.28008438799534,
+        452.96111622031833
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        217.47283816732133,
+        -149.03888377968167
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark9",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     216.74988386814942,
+     542
+    ],
+    "radius": 4.517630563358605
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     216.74988386814942,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        216.74988386814942,
+        478.1918588793799
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        196.40725843487644,
+        -123.80814112062012
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark10",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     392.2648758218926,
+     542
+    ],
+    "radius": 4.660498776315013
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     392.2648758218926,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        392.2648758218926,
+        178.36537914367642
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        426.18569833281714,
+        -423.6346208563236
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark11",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     319.3137641359651,
+     542
+    ],
+    "radius": 5.3146143878412495
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     319.3137641359651,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        319.3137641359651,
+        231.18757154568453
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        298.69703194484913,
+        -370.81242845431547
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark12",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     459.9621369037601,
+     542
+    ],
+    "radius": 6.4396456691621085
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     459.9621369037601,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        459.9621369037601,
+        181.83733735225968
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        457.19668408492424,
+        -420.1626626477403
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark13",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     272.24381342914137,
+     542
+    ],
+    "radius": 5.797631945366799
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     272.24381342914137,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        272.24381342914137,
+        468.44577609582143
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        250.65742604977336,
+        -133.55422390417857
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark14",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     353.7322849676629,
+     542
+    ],
+    "radius": 8.400483709480838
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     353.7322849676629,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        353.7322849676629,
+        210.50210338109275
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        355.3852752104333,
+        -391.49789661890725
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "spark15",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     154.0508817369355,
+     542
+    ],
+    "radius": 8.246698288361866
+   },
+   "fill": {
+    "color": "#ffb3d1",
+    "opacity": 0.75
+   },
+   "transform": {
+    "anchor": [
+     154.0508817369355,
+     542
+    ],
+    "position": {
+     "k": [
+      [
+       0,
+       [
+        154.0508817369355,
+        31.307572325369165
+       ],
+       "linear"
+      ],
+      [
+       90,
+       [
+        137.84368893077766,
+        -570.6924276746308
+       ],
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    },
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        40,
+        40
+       ],
+       "in-out-sine"
+      ],
+      [
+       45,
+       [
+        130,
+        130
+       ],
+       "in-out-sine"
+      ],
+      [
+       90,
+       [
+        30,
+        30
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.0,
+       "in-out-sine"
+      ],
+      [
+       22.5,
+       0.9,
+       "in-out-sine"
+      ],
+      [
+       62.99999999999999,
+       0.5,
+       "in-out-sine"
+      ],
+      [
+       90,
+       0.0,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  }
+ ]
+}

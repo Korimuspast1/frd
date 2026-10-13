@@ -1,0 +1,3684 @@
+{
+ "name": "Orbit",
+ "meta": {
+  "generator": "kvs-python/1.0",
+  "format": "kvs/1"
+ },
+ "canvas": {
+  "width": 512,
+  "height": 512,
+  "fps": 60,
+  "frames": 240,
+  "background": "#03040c"
+ },
+ "assets": [
+  {
+   "id": "space",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#0b1030"
+    },
+    {
+     "position": 1.0,
+     "color": "#03040c"
+    }
+   ],
+   "center": [
+    0.5,
+    0.5
+   ],
+   "radius": 0.75,
+   "normalized": true
+  },
+  {
+   "id": "sun",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#fff8d6"
+    },
+    {
+     "position": 0.5,
+     "color": "#ffc63c"
+    },
+    {
+     "position": 1.0,
+     "color": "#ff7a18"
+    }
+   ],
+   "center": [
+    0.5,
+    0.5
+   ],
+   "radius": 0.5,
+   "normalized": true
+  },
+  {
+   "id": "halo",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#ffd27a"
+    },
+    {
+     "position": 0.5,
+     "color": "#ff8c1a"
+    },
+    {
+     "position": 1.0,
+     "color": "#00000000"
+    }
+   ],
+   "center": [
+    0.5,
+    0.5
+   ],
+   "radius": 0.5,
+   "normalized": true
+  },
+  {
+   "id": "earth",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#9fd8ff"
+    },
+    {
+     "position": 0.5,
+     "color": "#2f7fd4"
+    },
+    {
+     "position": 1.0,
+     "color": "#0d2b5e"
+    }
+   ],
+   "center": [
+    0.35,
+    0.3
+   ],
+   "radius": 0.75,
+   "normalized": true
+  },
+  {
+   "id": "mars",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#ffc39a"
+    },
+    {
+     "position": 0.5,
+     "color": "#e0653a"
+    },
+    {
+     "position": 1.0,
+     "color": "#6d2312"
+    }
+   ],
+   "center": [
+    0.35,
+    0.3
+   ],
+   "radius": 0.75,
+   "normalized": true
+  }
+ ],
+ "layers": [
+  {
+   "name": "space",
+   "geometry": {
+    "type": "rect",
+    "position": [
+     256.0,
+     256.0
+    ],
+    "size": [
+     512,
+     512
+    ]
+   },
+   "fill": {
+    "gradient": "space"
+   }
+  },
+  {
+   "name": "star0",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     195.38629183330866,
+     177.67600401568973
+    ],
+    "radius": 0.9084262662606436
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       85.49336184072,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star1",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     370.35768073161955,
+     423.8742796964358
+    ],
+    "radius": 1.4456248309210058
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       178.31048020083014,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star2",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     412.28950352794004,
+     92.70516924406643
+    ],
+    "radius": 0.7484296553062413
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       77.34830397989056,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star3",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     36.17760969892964,
+     195.84128055155338
+    ],
+    "radius": 2.2885257691091514
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       130.6531361353831,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star4",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     54.01394298207664,
+     407.529439639081
+    ],
+    "radius": 1.0081914597694723
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       191.40860849591374,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star5",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     87.72404031070137,
+     430.77819129022686
+    ],
+    "radius": 1.1779154682894775
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       4.976697566442517,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star6",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     409.104532670744,
+     134.54529911584467
+    ],
+    "radius": 1.2258891696696583
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       66.09499055244726,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star7",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     466.76064441481634,
+     45.92524578325695
+    ],
+    "radius": 1.889373764204501
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       28.73020024445383,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star8",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     228.04369388709017,
+     453.3367325986441
+    ],
+    "radius": 2.037942463037531
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       31.087931260041863,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star9",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     479.9885935634322,
+     192.71017894181898
+    ],
+    "radius": 1.7185976770793077
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       98.2786953906895,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star10",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     25.251348745660554,
+     28.675223840715002
+    ],
+    "radius": 0.7727632038634099
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       105.1401772094612,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star11",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     253.04655969005384,
+     438.74822493956805
+    ],
+    "radius": 1.375151416228689
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       21.715749810317416,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star12",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     173.0849192948476,
+     248.51975786337619
+    ],
+    "radius": 1.2445054466577736
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       43.88924049394635,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star13",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     72.51071480312883,
+     261.84211790833723
+    ],
+    "radius": 1.876216378610682
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       91.6759461591374,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star14",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     467.83932731479376,
+     414.0168187161986
+    ],
+    "radius": 0.9468154304878857
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       197.66989910866596,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star15",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     175.89473088825807,
+     223.98209248482348
+    ],
+    "radius": 1.2403411472869763
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       68.14738246991644,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star16",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     143.74699432391068,
+     289.5003906644417
+    ],
+    "radius": 2.046581584097157
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       59.32669627448856,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star17",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     477.6497797806048,
+     265.3458830161699
+    ],
+    "radius": 2.1811914950055966
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       171.28417261470304,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star18",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     382.9778427476891,
+     284.4919582738038
+    ],
+    "radius": 1.3776845212456232
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       22.026441256527995,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star19",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     231.16453300750095,
+     238.29872380862884
+    ],
+    "radius": 2.0013003794948108
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       4.218945803222687,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star20",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     105.639293958265,
+     291.70050586932365
+    ],
+    "radius": 1.034747045643044
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       107.07070877173483,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star21",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     186.76516279334442,
+     121.393349227213
+    ],
+    "radius": 1.4858179476046087
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       205.87534735252862,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star22",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     399.7762703372986,
+     253.02251779894462
+    ],
+    "radius": 1.166884147593232
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       221.70833910894967,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star23",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     77.71534088892645,
+     425.36999388475436
+    ],
+    "radius": 0.7962615333945776
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       113.7805375986642,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star24",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     183.37119325593636,
+     405.5419785480676
+    ],
+    "radius": 2.1714530050155956
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       26.947938067348645,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star25",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     138.21623927830544,
+     231.15639172827656
+    ],
+    "radius": 1.5642656591088817
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       76.87769297364991,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star26",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     506.3439850780852,
+     183.53037222825475
+    ],
+    "radius": 1.887802982138378
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       95.3703774955917,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star27",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     509.40652990220417,
+     27.86777736054164
+    ],
+    "radius": 0.785332032332817
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       18.338505336241102,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star28",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     84.55206708076972,
+     384.44668358585176
+    ],
+    "radius": 2.1910256325691124
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       38.941294420017535,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star29",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     69.36238411318622,
+     134.8068853052365
+    ],
+    "radius": 2.1125795512518755
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       8.37568223866433,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star30",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     497.79036187463925,
+     406.93739671583165
+    ],
+    "radius": 0.9857046955664198
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       86.82359177936966,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star31",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     319.0974744852155,
+     339.4639498384036
+    ],
+    "radius": 1.350494297896742
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       207.0554468999875,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star32",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     59.79129054946419,
+     288.83649601081225
+    ],
+    "radius": 1.5996661004143145
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       113.18993797208645,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star33",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     500.562972540298,
+     239.516705147697
+    ],
+    "radius": 2.148679545451272
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       177.1100378861232,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star34",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     424.22477575029467,
+     377.1654660073879
+    ],
+    "radius": 1.1777279610176234
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       195.0352671160527,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star35",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     330.6475500215998,
+     288.8303858194642
+    ],
+    "radius": 1.095605751311223
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       206.75020972581126,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star36",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     326.69823876335204,
+     166.13329084503152
+    ],
+    "radius": 1.2754505808350864
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       59.98927879146733,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star37",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     111.17737894466956,
+     475.4577262231418
+    ],
+    "radius": 1.4123605634609053
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       82.47773233916506,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star38",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     14.756601578908322,
+     399.1364552449139
+    ],
+    "radius": 2.252886450268741
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       64.12893849617286,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star39",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     262.91613138044073,
+     215.63896046189544
+    ],
+    "radius": 0.8463988148357713
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       111.89789151395573,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star40",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     493.8822865401778,
+     242.75894319394556
+    ],
+    "radius": 2.268330246195351
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       99.79097713706594,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star41",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     283.56497897001213,
+     487.8018233663411
+    ],
+    "radius": 1.7652925280226825
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       76.53198841797746,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star42",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     149.495214770313,
+     284.77223934082883
+    ],
+    "radius": 0.8720688336398773
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       33.38439123396966,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star43",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     201.76259360171974,
+     14.561548716650135
+    ],
+    "radius": 1.85048091092635
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       194.62984004739198,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star44",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     8.952808622714509,
+     92.13532785891337
+    ],
+    "radius": 0.8001312666107581
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       233.2029431654154,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star45",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     431.08514734314997,
+     340.72087160717734
+    ],
+    "radius": 2.19102036053828
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       13.982278711154256,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star46",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     235.54999004842247,
+     56.99469330580658
+    ],
+    "radius": 1.5680387851167652
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       27.237660450505867,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star47",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     24.04631162809502,
+     351.2700258937059
+    ],
+    "radius": 0.7773344599070653
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       34.73365278669337,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star48",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     142.5191806026358,
+     362.68432014188
+    ],
+    "radius": 0.86455481581602
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       90.98933686082687,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star49",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     494.0972590363106,
+     197.38674602163337
+    ],
+    "radius": 1.7949639824661259
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       62.194325952881165,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star50",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     191.03030237510347,
+     141.72569233818245
+    ],
+    "radius": 2.1454349755521096
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       125.28103133909453,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star51",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     357.62666075193636,
+     294.4362665593793
+    ],
+    "radius": 0.7183168850924432
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       49.65317758249733,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star52",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     340.19077722178343,
+     409.8277947426903
+    ],
+    "radius": 1.2271770651113134
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       224.07056863609262,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star53",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     363.9606889989044,
+     511.9713218211994
+    ],
+    "radius": 1.2044183159733275
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       71.19010272956923,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star54",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     381.04552692037333,
+     23.887111198104503
+    ],
+    "radius": 1.4807710762977466
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       172.26303898369105,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star55",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     469.3630156318485,
+     67.73214581782564
+    ],
+    "radius": 1.386660608223947
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       144.48851204686264,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star56",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     206.57697329603926,
+     23.987626563751896
+    ],
+    "radius": 1.6254491862493796
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       33.52329836856727,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star57",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     331.03481236614044,
+     173.6464734886058
+    ],
+    "radius": 0.7685532830974801
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       143.64783174528174,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star58",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     17.70503831734184,
+     487.40082525061484
+    ],
+    "radius": 0.9224357598565684
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       108.08846851256139,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star59",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     249.11475121654325,
+     217.82953892360885
+    ],
+    "radius": 2.117473050866962
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       41.99600370693766,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star60",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     465.28714416236016,
+     134.58569103786056
+    ],
+    "radius": 0.9686973505973338
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       20.58043644790558,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star61",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     508.6790041908058,
+     282.58407653616
+    ],
+    "radius": 1.9584138063985919
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       4.901985528367565,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star62",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     168.11821206292055,
+     223.1887088861264
+    ],
+    "radius": 0.890692698299276
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       57.81835514019167,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star63",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     145.7412427150371,
+     270.4003206558527
+    ],
+    "radius": 1.667736634317663
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       92.58825038214599,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star64",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     334.9306644568828,
+     442.0438630255143
+    ],
+    "radius": 1.9381227312787075
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       196.631143035661,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star65",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     257.2526391750447,
+     245.9560056878049
+    ],
+    "radius": 0.7669198058857208
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       52.94328692040559,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star66",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     106.39442281909027,
+     117.17263751717873
+    ],
+    "radius": 2.2776805639163036
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       181.66998409743886,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star67",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     79.10186509001156,
+     458.11636612290346
+    ],
+    "radius": 1.216308780999998
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       164.33409966730238,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star68",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     25.116909277214162,
+     121.78401714273916
+    ],
+    "radius": 1.1868014986099682
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       173.22082810719536,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "star69",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     168.11509259423013,
+     17.93413592220011
+    ],
+    "radius": 1.9088662056293646
+   },
+   "fill": {
+    "color": "#ffffff"
+   },
+   "transform": {
+    "anchor": [
+     0,
+     0
+    ],
+    "position": [
+     0,
+     0
+    ],
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.25,
+       "in-out-sine"
+      ],
+      [
+       8.41870844756193,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       240,
+       0.25,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "orbit1",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 118
+   },
+   "stroke": {
+    "color": "#4a5f9a",
+    "width": 1.6,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.55,
+    "dash": [
+     5,
+     7
+    ]
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "scale": [
+     100,
+     38.983050847457626
+    ],
+    "rotation": -18
+   }
+  },
+  {
+   "name": "orbit2",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 186
+   },
+   "stroke": {
+    "color": "#4a5f9a",
+    "width": 1.6,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.55,
+    "dash": [
+     5,
+     7
+    ]
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "scale": [
+     100,
+     38.70967741935484
+    ],
+    "rotation": -18
+   }
+  },
+  {
+   "name": "halo",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 128
+   },
+   "fill": {
+    "gradient": "halo"
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        96,
+        96
+       ],
+       "in-out-sine"
+      ],
+      [
+       120,
+       [
+        108,
+        108
+       ],
+       "in-out-sine"
+      ],
+      [
+       240,
+       [
+        96,
+        96
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "sun",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 46
+   },
+   "fill": {
+    "gradient": "sun"
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        100,
+        100
+       ],
+       "in-out-sine"
+      ],
+      [
+       120,
+       [
+        104,
+        104
+       ],
+       "in-out-sine"
+      ],
+      [
+       240,
+       [
+        100,
+        100
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   }
+  },
+  {
+   "name": "earth-arm",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 1.0
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "rotation": -18
+   },
+   "hidden": true
+  },
+  {
+   "name": "earth-spin",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 1.0
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       0,
+       "linear"
+      ],
+      [
+       240,
+       720.0,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   },
+   "hidden": true,
+   "parent": 75
+  },
+  {
+   "name": "earth",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     374,
+     256
+    ],
+    "radius": 15
+   },
+   "fill": {
+    "gradient": "earth"
+   },
+   "transform": {
+    "anchor": [
+     374,
+     256
+    ],
+    "position": [
+     374,
+     256
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       18,
+       "linear"
+      ],
+      [
+       240,
+       -702.0,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   },
+   "parent": 76
+  },
+  {
+   "name": "mars-arm",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 1.0
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "rotation": -18
+   },
+   "hidden": true
+  },
+  {
+   "name": "mars-spin",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     256
+    ],
+    "radius": 1.0
+   },
+   "transform": {
+    "anchor": [
+     256,
+     256
+    ],
+    "position": [
+     256,
+     256
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       140,
+       "linear"
+      ],
+      [
+       240,
+       500.0,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   },
+   "hidden": true,
+   "parent": 78
+  },
+  {
+   "name": "mars",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     442,
+     256
+    ],
+    "radius": 11
+   },
+   "fill": {
+    "gradient": "mars"
+   },
+   "transform": {
+    "anchor": [
+     442,
+     256
+    ],
+    "position": [
+     442,
+     256
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       -122,
+       "linear"
+      ],
+      [
+       240,
+       -482.0,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   },
+   "parent": 79
+  }
+ ]
+}

@@ -1,0 +1,442 @@
+{
+ "name": "Meshing Gears",
+ "meta": {
+  "generator": "kvs-python/1.0",
+  "format": "kvs/1"
+ },
+ "canvas": {
+  "width": 512,
+  "height": 512,
+  "fps": 60,
+  "frames": 180,
+  "background": "#0d1117"
+ },
+ "assets": [
+  {
+   "id": "steel",
+   "type": "linear",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#e8eef5"
+    },
+    {
+     "position": 0.5,
+     "color": "#9fb0c3"
+    },
+    {
+     "position": 1.0,
+     "color": "#5d6b7d"
+    }
+   ],
+   "angle": 135,
+   "normalized": true
+  },
+  {
+   "id": "brass",
+   "type": "linear",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#ffe6a7"
+    },
+    {
+     "position": 0.5,
+     "color": "#e0a63c"
+    },
+    {
+     "position": 1.0,
+     "color": "#8a5c14"
+    }
+   ],
+   "angle": 135,
+   "normalized": true
+  },
+  {
+   "id": "floor",
+   "type": "radial",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#1b2431"
+    },
+    {
+     "position": 1.0,
+     "color": "#0b0f15"
+    }
+   ],
+   "center": [
+    0.5,
+    0.5
+   ],
+   "radius": 0.7,
+   "normalized": true
+  }
+ ],
+ "layers": [
+  {
+   "name": "backdrop",
+   "geometry": {
+    "type": "rect",
+    "position": [
+     256.0,
+     256.0
+    ],
+    "size": [
+     512,
+     512
+    ]
+   },
+   "fill": {
+    "gradient": "floor"
+   }
+  },
+  {
+   "name": "A-teeth",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     190,
+     250
+    ],
+    "radius": 115.2
+   },
+   "stroke": {
+    "color": "#b9c8d8",
+    "width": 25.6,
+    "cap": "butt",
+    "join": "round",
+    "dash": [
+     32.0550162414282,
+     19.64662285764954
+    ]
+   },
+   "transform": {
+    "anchor": [
+     190,
+     250
+    ],
+    "position": [
+     190,
+     250
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       0.0,
+       "linear"
+      ],
+      [
+       180,
+       360.0,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   }
+  },
+  {
+   "name": "A-body",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     190,
+     250
+    ],
+    "radius": 99.84
+   },
+   "fill": {
+    "gradient": "steel"
+   },
+   "stroke": {
+    "color": "#0d1117",
+    "width": 3,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.55
+   },
+   "transform": {
+    "anchor": [
+     190,
+     250
+    ],
+    "position": [
+     190,
+     250
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       0.0,
+       "linear"
+      ],
+      [
+       180,
+       360.0,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   }
+  },
+  {
+   "name": "A-hub",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     190,
+     250
+    ],
+    "radius": 43.52
+   },
+   "fill": {
+    "color": "#0d1117"
+   },
+   "stroke": {
+    "color": "#b9c8d8",
+    "width": 8.96,
+    "cap": "round",
+    "join": "round"
+   }
+  },
+  {
+   "name": "A-axle",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     190,
+     250
+    ],
+    "radius": 15.667200000000001
+   },
+   "fill": {
+    "gradient": "steel"
+   }
+  },
+  {
+   "name": "B-teeth",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     372,
+     268
+    ],
+    "radius": 77.4
+   },
+   "stroke": {
+    "color": "#e8b45c",
+    "width": 17.2,
+    "cap": "butt",
+    "join": "round",
+    "dash": [
+     30.1517496520934,
+     18.4801046254766
+    ]
+   },
+   "transform": {
+    "anchor": [
+     372,
+     268
+    ],
+    "position": [
+     372,
+     268
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       18.0,
+       "linear"
+      ],
+      [
+       180,
+       -485.99999999999994,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   }
+  },
+  {
+   "name": "B-body",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     372,
+     268
+    ],
+    "radius": 67.08
+   },
+   "fill": {
+    "gradient": "brass"
+   },
+   "stroke": {
+    "color": "#0d1117",
+    "width": 3,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.55
+   },
+   "transform": {
+    "anchor": [
+     372,
+     268
+    ],
+    "position": [
+     372,
+     268
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       18.0,
+       "linear"
+      ],
+      [
+       180,
+       -485.99999999999994,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   }
+  },
+  {
+   "name": "B-hub",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     372,
+     268
+    ],
+    "radius": 29.240000000000002
+   },
+   "fill": {
+    "color": "#0d1117"
+   },
+   "stroke": {
+    "color": "#e8b45c",
+    "width": 6.0200000000000005,
+    "cap": "round",
+    "join": "round"
+   }
+  },
+  {
+   "name": "B-axle",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     372,
+     268
+    ],
+    "radius": 10.5264
+   },
+   "fill": {
+    "gradient": "brass"
+   }
+  },
+  {
+   "name": "A-vent0",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     264.0,
+     250.0
+    ],
+    "radius": 24
+   },
+   "fill": {
+    "color": "#0d1117",
+    "opacity": 0.9
+   },
+   "parent": 2
+  },
+  {
+   "name": "A-vent1",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     212.8672575837461,
+     320.37818220584137
+    ],
+    "radius": 24
+   },
+   "fill": {
+    "color": "#0d1117",
+    "opacity": 0.9
+   },
+   "parent": 2
+  },
+  {
+   "name": "A-vent2",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     130.1327424162539,
+     293.49610866964304
+    ],
+    "radius": 24
+   },
+   "fill": {
+    "color": "#0d1117",
+    "opacity": 0.9
+   },
+   "parent": 2
+  },
+  {
+   "name": "A-vent3",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     130.13274241625388,
+     206.503891330357
+    ],
+    "radius": 24
+   },
+   "fill": {
+    "color": "#0d1117",
+    "opacity": 0.9
+   },
+   "parent": 2
+  },
+  {
+   "name": "A-vent4",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     212.8672575837461,
+     179.62181779415863
+    ],
+    "radius": 24
+   },
+   "fill": {
+    "color": "#0d1117",
+    "opacity": 0.9
+   },
+   "parent": 2
+  },
+  {
+   "name": "title-dot",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     256,
+     470
+    ],
+    "radius": 5
+   },
+   "fill": {
+    "color": "#9fb0c3",
+    "opacity": 0.6
+   }
+  }
+ ]
+}

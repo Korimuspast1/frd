@@ -1,0 +1,261 @@
+{
+ "name": "Spinner",
+ "meta": {
+  "generator": "kvs-python/1.0",
+  "format": "kvs/1"
+ },
+ "canvas": {
+  "width": 256,
+  "height": 256,
+  "fps": 60,
+  "frames": 60,
+  "background": "#0f1220"
+ },
+ "assets": [
+  {
+   "id": "card",
+   "type": "linear",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#1a1f36"
+    },
+    {
+     "position": 1.0,
+     "color": "#10131f"
+    }
+   ],
+   "angle": 135,
+   "normalized": true
+  },
+  {
+   "id": "arc",
+   "type": "conic",
+   "stops": [
+    {
+     "position": 0.0,
+     "color": "#00e5ff00"
+    },
+    {
+     "position": 0.5,
+     "color": "#00e5ff"
+    },
+    {
+     "position": 1.0,
+     "color": "#7c4dff"
+    }
+   ],
+   "center": [
+    0.5,
+    0.5
+   ],
+   "angle": 0.0,
+   "normalized": true
+  }
+ ],
+ "layers": [
+  {
+   "name": "card",
+   "geometry": {
+    "type": "round-rect",
+    "position": [
+     128.0,
+     128.0
+    ],
+    "size": [
+     220,
+     220
+    ],
+    "radius": 44
+   },
+   "fill": {
+    "gradient": "card"
+   }
+  },
+  {
+   "name": "track",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     128.0,
+     128.0
+    ],
+    "radius": 62
+   },
+   "stroke": {
+    "color": "#2c3352",
+    "width": 12,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.9
+   }
+  },
+  {
+   "name": "arc",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     128.0,
+     128.0
+    ],
+    "radius": 62
+   },
+   "stroke": {
+    "color": "#00e5ff",
+    "width": 12,
+    "cap": "round",
+    "join": "round",
+    "dash": [
+     230,
+     160
+    ]
+   },
+   "transform": {
+    "anchor": [
+     128.0,
+     128.0
+    ],
+    "position": [
+     128.0,
+     128.0
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       0,
+       "linear"
+      ],
+      [
+       60,
+       360,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   }
+  },
+  {
+   "name": "arc2",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     128.0,
+     128.0
+    ],
+    "radius": 62
+   },
+   "stroke": {
+    "color": "#7c4dff",
+    "width": 12,
+    "cap": "round",
+    "join": "round",
+    "opacity": 0.85,
+    "dash": [
+     70,
+     320
+    ]
+   },
+   "transform": {
+    "anchor": [
+     128.0,
+     128.0
+    ],
+    "position": [
+     128.0,
+     128.0
+    ],
+    "rotation": {
+     "k": [
+      [
+       0,
+       180,
+       "linear"
+      ],
+      [
+       60,
+       540,
+       "linear"
+      ]
+     ],
+     "e": "linear"
+    }
+   },
+   "blend": "add"
+  },
+  {
+   "name": "core",
+   "geometry": {
+    "type": "circle",
+    "position": [
+     128.0,
+     128.0
+    ],
+    "radius": 20
+   },
+   "fill": {
+    "color": "#e8f6ff"
+   },
+   "transform": {
+    "anchor": [
+     128.0,
+     128.0
+    ],
+    "position": [
+     128.0,
+     128.0
+    ],
+    "scale": {
+     "k": [
+      [
+       0,
+       [
+        90,
+        90
+       ],
+       "in-out-sine"
+      ],
+      [
+       30,
+       [
+        112,
+        112
+       ],
+       "in-out-sine"
+      ],
+      [
+       60,
+       [
+        90,
+        90
+       ],
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    },
+    "opacity": {
+     "k": [
+      [
+       0,
+       0.7,
+       "in-out-sine"
+      ],
+      [
+       30,
+       1.0,
+       "in-out-sine"
+      ],
+      [
+       60,
+       0.7,
+       "in-out-sine"
+      ]
+     ],
+     "e": "in-out-sine"
+    }
+   }
+  }
+ ]
+}
