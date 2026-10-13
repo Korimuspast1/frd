@@ -342,6 +342,10 @@ public final class MainActivity extends Activity {
     }
 
     private void deleteDialog(Chat chat) {
+        if (requestRunning && requestChatId == chat.id) {
+            Toast.makeText(this, "Дождитесь ответа перед удалением этого чата", Toast.LENGTH_SHORT).show();
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("Удалить чат?")
                 .setMessage("История «" + chat.title + "» будет удалена без возможности восстановления.")
@@ -565,13 +569,17 @@ public final class MainActivity extends Activity {
         assistant.ask(question, history, snapshot, new AssistantEngine.Callback() {
             @Override
             public void onSuccess(AssistantReply reply) {
-                database.addMessage(chatId, ChatMessage.ROLE_ASSISTANT, reply.text, reply.sources);
+                if (database.getChat(chatId) != null) {
+                    database.addMessage(chatId, ChatMessage.ROLE_ASSISTANT, reply.text, reply.sources);
+                }
                 requestRunning = false;
                 requestChatId = -1;
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
                     messageAdapter.setMessages(database.getMessages(chatId));
                     scrollMessagesToEnd();
                     updateSendState();
+                } else if (screen == Screen.HOME) {
+                    refreshChats();
                 }
             }
 
@@ -583,6 +591,9 @@ public final class MainActivity extends Activity {
                     messageAdapter.replaceTransient(ChatMessage.error(chatId, error));
                     scrollMessagesToEnd();
                     updateSendState();
+                } else if (screen == Screen.HOME) {
+                    refreshChats();
+                    Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
                 } else {
                     Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
                 }
@@ -763,6 +774,10 @@ public final class MainActivity extends Activity {
     }
 
     private void clearAllDialog() {
+        if (requestRunning) {
+            Toast.makeText(this, "Дождитесь текущего ответа перед очисткой истории", Toast.LENGTH_SHORT).show();
+            return;
+        }
         new AlertDialog.Builder(this)
                 .setTitle("Удалить все чаты?")
                 .setMessage("Все диалоги и ответы будут удалены с устройства.")

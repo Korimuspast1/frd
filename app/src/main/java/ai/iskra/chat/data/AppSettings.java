@@ -45,11 +45,13 @@ public final class AppSettings {
 
     public void save(boolean aiEnabled, boolean webEnabled, String endpoint,
                      String model, String newApiKey) throws Exception {
+        String cleanEndpoint = endpoint == null ? "" : endpoint.trim();
+        String cleanModel = model == null ? "" : model.trim();
         preferences.edit()
                 .putBoolean("ai_enabled", aiEnabled)
                 .putBoolean("web_enabled", webEnabled)
-                .putString("endpoint", endpoint == null ? DEFAULT_ENDPOINT : endpoint.trim())
-                .putString("model", model == null ? DEFAULT_MODEL : model.trim())
+                .putString("endpoint", cleanEndpoint.isEmpty() ? DEFAULT_ENDPOINT : cleanEndpoint)
+                .putString("model", cleanModel.isEmpty() ? DEFAULT_MODEL : cleanModel)
                 .apply();
         if (newApiKey != null && !newApiKey.trim().isEmpty()) {
             secureKeyStore.saveKey(newApiKey);

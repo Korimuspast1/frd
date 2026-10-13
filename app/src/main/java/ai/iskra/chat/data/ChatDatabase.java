@@ -20,13 +20,13 @@ public final class ChatDatabase extends SQLiteOpenHelper {
 
     public ChatDatabase(Context context) {
         super(context.getApplicationContext(), DATABASE_NAME, null, DATABASE_VERSION);
+        setWriteAheadLoggingEnabled(true);
     }
 
     @Override
     public void onConfigure(SQLiteDatabase db) {
         super.onConfigure(db);
         db.setForeignKeyConstraintsEnabled(true);
-        db.enableWriteAheadLogging();
     }
 
     @Override
