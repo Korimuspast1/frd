@@ -136,7 +136,8 @@ public final class WeatherService {
         String city = "";
         Matcher matcher = CITY_AFTER_PREPOSITION.matcher(lower);
         while (matcher.find()) city = matcher.group(1);
-        city = city.replaceAll("(?iu)\\b(сегодня|завтра|послезавтра|сейчас|например|пожалуйста|будет|ожидается|реально)\\b.*$", "")
+        city = city.replaceAll("(?iu)(?:^|\\s)(сегодня|завтра|послезавтра|сейчас|например|" +
+                        "пожалуйста|будет|ожидается|реально)(?:\\s.*)?$", "")
                 .trim();
         if (city.isEmpty()) {
             Matcher simple = Pattern.compile("(?iu)погод[ауы]?\\s+(?:на\\s+)?(?:сегодня|завтра|послезавтра)?\\s*([а-яёa-z][а-яёa-z\\-]+)")
