@@ -45,7 +45,7 @@ jobs:
           BASE="https://raw.githubusercontent.com/aosp-mirror/platform_build/${AOSP_REV}/target/product/security"
           curl --fail --silent --show-error --location "$BASE/testkey.pk8" -o testkey.pk8
           curl --fail --silent --show-error --location "$BASE/testkey.x509.pem" -o testkey.x509.pem
-          openssl pkcs8 -inform DER -in testkey.pk8 -out testkey.pem
+          openssl pkcs8 -inform DER -nocrypt -in testkey.pk8 -out testkey.pem
           openssl pkcs12 -export -in testkey.x509.pem -inkey testkey.pem \
             -out kvsai-test.p12 -name kvsai -passout pass:kvsai-test
           cat > signing.properties <<'EOF'
