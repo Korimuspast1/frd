@@ -15,7 +15,7 @@ on:
       - '.github/workflows/build-apk.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -71,3 +71,22 @@ jobs:
           path: artifacts/*
           if-no-files-found: error
           retention-days: 30
+
+      # Keep the installable release directly in this working branch. Changes
+      # under out/ do not match the workflow paths, so this does not loop.
+      - name: Publish release APK in the branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp artifacts/IskraAI-release.apk out/IskraAI-release.apk
+          (cd out && sha256sum IskraAI-release.apk > SHA256SUMS.txt)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f out/IskraAI-release.apk out/SHA256SUMS.txt
+          if git diff --cached --quiet; then
+            echo "APK is unchanged"
+          else
+            git commit -m "build: publish Iskra AI APK (run ${{ github.run_number }})"
+            git push origin HEAD:"${GITHUB_REF_NAME}"
+          fi
