@@ -1,1 +1,1 @@
-fee31dd6bda06aedbd33a38b97168f0e01ddcf89ea7ef4a5f1f59576bb314769  kvsai-release.apk
+2ed3830f93771baf6026564c419ebf48ef899355267f9dfdc33c7d6acc39ce8f  kvsai-release.apk
