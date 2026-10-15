@@ -39,8 +39,10 @@ import android.widget.Toast;
 
 import ai.iskra.chat.assistant.AssistantEngine;
 import ai.iskra.chat.data.AppSettings;
+import ai.iskra.chat.data.AttachmentReader;
 import ai.iskra.chat.data.ChatDatabase;
 import ai.iskra.chat.model.AssistantReply;
+import ai.iskra.chat.model.AttachmentData;
 import ai.iskra.chat.model.Chat;
 import ai.iskra.chat.model.ChatMessage;
 import ai.iskra.chat.ui.AmbientBackgroundView;
@@ -49,6 +51,7 @@ import ai.iskra.chat.ui.ChatListAdapter;
 import ai.iskra.chat.ui.DebugConsoleView;
 import ai.iskra.chat.ui.MessageAdapter;
 import ai.iskra.chat.ui.ShatterOverlay;
+import ai.iskra.chat.security.IntegrityGuard;
 import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
 import ai.iskra.chat.util.Ui;
@@ -57,14 +60,20 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int VOICE_REQUEST_CODE = 4281;
+    private static final int PHOTO_REQUEST_CODE = 4282;
+    private static final int FILE_REQUEST_CODE = 4283;
     private enum Screen { HOME, CHAT, SETTINGS }
 
     private ChatDatabase database;
     private AppSettings settings;
     private AssistantEngine assistant;
+    private AttachmentReader attachmentReader;
+    private final ExecutorService attachmentExecutor = Executors.newSingleThreadExecutor();
     private FrameLayout host;
     private Screen screen = Screen.HOME;
     private Screen settingsReturnScreen = Screen.HOME;
@@ -78,6 +87,10 @@ public final class MainActivity extends Activity {
     private EditText homeComposer;
     private ImageButton homeActionButton;
     private ImageButton currentVoiceButton;
+    private LinearLayout attachmentPreview;
+    private AttachmentData pendingAttachment;
+    private AttachmentData lastAttachment;
+    private boolean attachmentLoading;
 
     private MessageAdapter messageAdapter;
     private ListView messageList;
@@ -87,6 +100,7 @@ public final class MainActivity extends Activity {
     private TextView currentMode;
 
     private boolean requestRunning;
+    private boolean requestDeepReasoning;
     private long requestChatId = -1;
     private String lastQuestion = "";
     private TextToSpeech textToSpeech;
@@ -95,13 +109,15 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        IntegrityGuard.verifyOrThrow(this);
         configureWindow();
         settings = new AppSettings(this);
         DebugLog.initialize(settings.isDebugEnabled());
-        DebugLog.log("APP", "kvsai 1.2.0 starting; Android=" + Build.VERSION.RELEASE +
+        DebugLog.log("APP", "kvsai 1.3.0 starting; Android=" + Build.VERSION.RELEASE +
                 ", sdk=" + Build.VERSION.SDK_INT + ", device=" + Build.MANUFACTURER + " " + Build.MODEL);
         database = new ChatDatabase(this);
         assistant = new AssistantEngine(this);
+        attachmentReader = new AttachmentReader(this);
         if (settings.isVoiceEnabled()) initializeSpeech();
 
         host = new FrameLayout(this);
@@ -143,12 +159,13 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         DebugLog.log("LIFECYCLE", "onDestroy; finishing=" + isFinishing());
-        assistant.shutdown();
+        if (assistant != null) assistant.shutdown();
+        attachmentExecutor.shutdownNow();
         if (textToSpeech != null) {
             textToSpeech.stop();
             textToSpeech.shutdown();
         }
-        database.close();
+        if (database != null) database.close();
         super.onDestroy();
     }
 
@@ -177,6 +194,10 @@ public final class MainActivity extends Activity {
         currentChatId = -1;
         host.removeAllViews();
         drawerOverlay = null;
+        composer = null;
+        sendButton = null;
+        messageAdapter = null;
+        messageList = null;
 
         DebugLog.log("NAV", "Open HOME screen");
         LinearLayout root = vertical();
@@ -206,7 +227,8 @@ public final class MainActivity extends Activity {
         primary.setMaxLines(1);
         primary.setEllipsize(android.text.TextUtils.TruncateAt.END);
         pill.addView(primary, new LinearLayout.LayoutParams(0, wrap(), 1f));
-        String modeLabel = settings.isAiEnabled() ? "AI" : "Web";
+        String modeLabel = settings.isReasoningEnabled() && settings.isAiEnabled()
+                ? "Think" : settings.isAiEnabled() ? "AI" : "Web";
         TextView secondary = text("  " + modeLabel, 14, 0xFF9D9EA3, false);
         secondary.setMaxLines(1);
         pill.addView(secondary);
@@ -259,8 +281,11 @@ public final class MainActivity extends Activity {
     }
 
     private View buildHomeComposer() {
-        FrameLayout outer = new FrameLayout(this);
+        LinearLayout outer = vertical();
         outer.setPadding(Ui.dp(this, 24), Ui.dp(this, 8), Ui.dp(this, 24), Ui.dp(this, 20));
+        attachmentPreview = buildAttachmentPreview();
+        outer.addView(attachmentPreview, new LinearLayout.LayoutParams(matchValue(), wrap()));
+
         LinearLayout box = horizontal(Gravity.CENTER_VERTICAL);
         box.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 9), Ui.dp(this, 7));
         box.setBackground(Ui.glass(this, 36));
@@ -269,8 +294,8 @@ public final class MainActivity extends Activity {
         TextView add = text("＋", 28, 0xFFE8E8EA, false);
         add.setGravity(Gravity.CENTER);
         add.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x32FFFFFF));
-        add.setContentDescription("Создать пустой чат");
-        add.setOnClickListener(v -> createChat());
+        add.setContentDescription("Добавить фотографию или файл");
+        add.setOnClickListener(v -> showAttachmentMenu(v, true));
         box.addView(add, new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
 
         homeComposer = new EditText(this);
@@ -290,11 +315,7 @@ public final class MainActivity extends Activity {
             return false;
         });
         homeComposer.addTextChangedListener(new SimpleTextWatcher() {
-            @Override public void afterTextChanged(Editable value) {
-                boolean hasText = !value.toString().trim().isEmpty();
-                homeActionButton.setImageResource(hasText ? R.drawable.ic_send : R.drawable.ic_waveform);
-                homeActionButton.setAlpha(hasText ? 1f : 0.82f);
-            }
+            @Override public void afterTextChanged(Editable value) { updateHomeActionState(); }
         });
         box.addView(homeComposer, new LinearLayout.LayoutParams(0, Ui.dp(this, 58), 1f));
 
@@ -304,22 +325,27 @@ public final class MainActivity extends Activity {
         homeActionButton.setPadding(Ui.dp(this, 15), Ui.dp(this, 15), Ui.dp(this, 15), Ui.dp(this, 15));
         homeActionButton.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x32FFFFFF));
         homeActionButton.setOnClickListener(v -> {
-            if (homeComposer.getText().toString().trim().isEmpty()) startVoiceInput();
+            boolean hasPrompt = !homeComposer.getText().toString().trim().isEmpty();
+            if (!hasPrompt && pendingAttachment == null) startVoiceInput();
             else submitHomeComposer();
         });
         box.addView(homeActionButton, new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
-        outer.addView(box, new FrameLayout.LayoutParams(matchValue(), Ui.dp(this, 72)));
+        outer.addView(box, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 72)));
+        refreshAttachmentPreview();
+        updateHomeActionState();
         return outer;
     }
 
     private void submitHomeComposer() {
-        if (homeComposer == null) return;
+        if (homeComposer == null || attachmentLoading) return;
         String question = homeComposer.getText().toString().trim();
-        if (question.isEmpty()) return;
+        if (question.isEmpty() && pendingAttachment == null) return;
+        if (question.isEmpty()) question = defaultAttachmentQuestion(pendingAttachment);
+        AttachmentData attachment = consumeAttachment();
         long chatId = database.createChat();
-        DebugLog.log("UI", "Home prompt created chat=" + chatId);
+        DebugLog.log("UI", "Home prompt created chat=" + chatId + ", attachment=" + (attachment != null));
         showChat(chatId);
-        askAssistant(chatId, question, true);
+        askAssistant(chatId, question, true, attachment);
     }
 
     private View buildHomeHeader() {
@@ -639,8 +665,10 @@ public final class MainActivity extends Activity {
         screen = Screen.CHAT;
         currentChatId = chatId;
         host.removeAllViews();
+        homeComposer = null;
+        homeActionButton = null;
 
-        DebugLog.log("NAV", "Open CHAT screen id=" + chatId + ", title=\"" + chat.title + "\"");
+        DebugLog.log("NAV", "Open CHAT screen id=" + chatId + ", titleChars=" + chat.title.length());
         LinearLayout root = vertical();
         root.setBackgroundColor(Color.TRANSPARENT);
         mountScreen(root);
@@ -657,7 +685,9 @@ public final class MainActivity extends Activity {
         messageList.setStackFromBottom(false);
         messageAdapter = new MessageAdapter(this, this::retryLastQuestion);
         List<ChatMessage> messages = database.getMessages(chatId);
-        if (requestRunning && requestChatId == chatId) messages.add(ChatMessage.pending(chatId));
+        if (requestRunning && requestChatId == chatId) {
+            messages.add(ChatMessage.pending(chatId, requestDeepReasoning));
+        }
         messageAdapter.setMessages(messages);
         messageList.setAdapter(messageAdapter);
         content.addView(messageList, match());
@@ -743,8 +773,10 @@ public final class MainActivity extends Activity {
     }
 
     private View buildComposer() {
-        FrameLayout area = new FrameLayout(this);
+        LinearLayout area = vertical();
         area.setPadding(Ui.dp(this, 16), Ui.dp(this, 8), Ui.dp(this, 16), Ui.dp(this, 16));
+        attachmentPreview = buildAttachmentPreview();
+        area.addView(attachmentPreview, new LinearLayout.LayoutParams(matchValue(), wrap()));
 
         LinearLayout box = horizontal(Gravity.CENTER_VERTICAL);
         box.setPadding(Ui.dp(this, 8), Ui.dp(this, 7), Ui.dp(this, 8), Ui.dp(this, 7));
@@ -753,9 +785,9 @@ public final class MainActivity extends Activity {
 
         TextView add = text("＋", 25, 0xFFE6E6E8, false);
         add.setGravity(Gravity.CENTER);
-        add.setContentDescription("Новый чат");
+        add.setContentDescription("Добавить фотографию или файл");
         add.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x32FFFFFF));
-        add.setOnClickListener(v -> createChat());
+        add.setOnClickListener(v -> showAttachmentMenu(v, true));
         box.addView(add, new LinearLayout.LayoutParams(Ui.dp(this, 50), Ui.dp(this, 50)));
 
         composer = new EditText(this);
@@ -788,18 +820,21 @@ public final class MainActivity extends Activity {
         sendButton.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14));
         sendButton.setBackground(Ui.ripple(Ui.glassBlue(this, 99), 0x55FFFFFF));
         sendButton.setOnClickListener(v -> {
-            if (composer.getText().toString().trim().isEmpty()) startVoiceInput();
+            boolean hasPrompt = !composer.getText().toString().trim().isEmpty();
+            if (!hasPrompt && pendingAttachment == null) startVoiceInput();
             else submitComposer();
         });
         box.addView(sendButton, new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52)));
-        area.addView(box, new FrameLayout.LayoutParams(matchValue(), wrap()));
+        area.addView(box, new LinearLayout.LayoutParams(matchValue(), wrap()));
+        refreshAttachmentPreview();
         return area;
     }
 
     private void submitComposer() {
-        if (composer == null) return;
+        if (composer == null || attachmentLoading) return;
         String question = composer.getText().toString().trim();
-        if (question.isEmpty()) return;
+        if (question.isEmpty() && pendingAttachment == null) return;
+        if (question.isEmpty()) question = defaultAttachmentQuestion(pendingAttachment);
         composer.setText("");
         sendQuestion(question);
     }
@@ -810,16 +845,20 @@ public final class MainActivity extends Activity {
             return;
         }
         if (currentChatId < 0 || database.getChat(currentChatId) == null) return;
-        askAssistant(currentChatId, question.trim(), true);
+        AttachmentData attachment = consumeAttachment();
+        askAssistant(currentChatId, question.trim(), true, attachment);
     }
 
-    private void askAssistant(long chatId, String question, boolean addUserMessage) {
+    private void askAssistant(long chatId, String question, boolean addUserMessage,
+                              AttachmentData attachment) {
         if (question.isEmpty() || requestRunning) return;
         DebugLog.log("CHAT", (addUserMessage ? "Send" : "Retry") + " chat=" + chatId +
-                ", chars=" + question.length() + ", text=\"" + question + "\"");
+                ", chars=" + question.length() + ", attachment=" + (attachment != null));
         if (addUserMessage) {
             int oldCount = database.countMessages(chatId);
-            database.addMessage(chatId, ChatMessage.ROLE_USER, question, Collections.emptyList());
+            String storedQuestion = attachment == null
+                    ? question : attachment.historyLabel() + "\n\n" + question;
+            database.addMessage(chatId, ChatMessage.ROLE_USER, storedQuestion, Collections.emptyList());
             if (oldCount == 0) {
                 database.renameChat(chatId, TextUtilsEx.chatTitle(question));
                 Chat renamed = database.getChat(chatId);
@@ -829,10 +868,12 @@ public final class MainActivity extends Activity {
 
         requestRunning = true;
         requestChatId = chatId;
+        requestDeepReasoning = settings.isReasoningEnabled() && settings.isAiEnabled();
         lastQuestion = question;
+        lastAttachment = attachment;
         if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
             List<ChatMessage> saved = database.getMessages(chatId);
-            saved.add(ChatMessage.pending(chatId));
+            saved.add(ChatMessage.pending(chatId, requestDeepReasoning));
             messageAdapter.setMessages(saved);
             scrollMessagesToEnd();
         }
@@ -840,7 +881,7 @@ public final class MainActivity extends Activity {
 
         List<ChatMessage> history = database.getMessages(chatId);
         AppSettings.Snapshot snapshot = settings.snapshot();
-        assistant.ask(question, history, snapshot, new AssistantEngine.Callback() {
+        assistant.ask(question, history, snapshot, attachment, new AssistantEngine.Callback() {
             @Override
             public void onSuccess(AssistantReply reply) {
                 DebugLog.log("CHAT", "Assistant callback success chat=" + chatId +
@@ -850,6 +891,7 @@ public final class MainActivity extends Activity {
                 }
                 speakReply(reply.text);
                 requestRunning = false;
+                requestDeepReasoning = false;
                 requestChatId = -1;
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
                     messageAdapter.setMessages(database.getMessages(chatId));
@@ -864,6 +906,7 @@ public final class MainActivity extends Activity {
             public void onError(String error) {
                 DebugLog.log("CHAT", "Assistant callback error chat=" + chatId + ": " + error);
                 requestRunning = false;
+                requestDeepReasoning = false;
                 requestChatId = -1;
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
                     messageAdapter.replaceTransient(ChatMessage.error(chatId, error));
@@ -881,17 +924,207 @@ public final class MainActivity extends Activity {
 
     private void retryLastQuestion() {
         if (requestRunning || currentChatId < 0 || lastQuestion.isEmpty()) return;
-        askAssistant(currentChatId, lastQuestion, false);
+        askAssistant(currentChatId, lastQuestion, false, lastAttachment);
     }
 
     private void updateSendState() {
         if (sendButton == null) return;
         boolean hasText = composer != null && !composer.getText().toString().trim().isEmpty();
-        boolean enabled = !requestRunning;
-        sendButton.setImageResource(hasText ? R.drawable.ic_send : R.drawable.ic_waveform);
+        boolean hasContent = hasText || pendingAttachment != null;
+        boolean enabled = !requestRunning && !attachmentLoading;
+        sendButton.setImageResource(hasContent ? R.drawable.ic_send : R.drawable.ic_waveform);
         sendButton.setEnabled(enabled);
         sendButton.setAlpha(enabled ? 1f : 0.42f);
-        if (composer != null) composer.setEnabled(!requestRunning);
+        if (composer != null) composer.setEnabled(!requestRunning && !attachmentLoading);
+    }
+
+    private void updateHomeActionState() {
+        if (homeActionButton == null) return;
+        boolean hasText = homeComposer != null && !homeComposer.getText().toString().trim().isEmpty();
+        boolean hasContent = hasText || pendingAttachment != null;
+        homeActionButton.setImageResource(hasContent ? R.drawable.ic_send : R.drawable.ic_waveform);
+        homeActionButton.setEnabled(!attachmentLoading);
+        homeActionButton.setAlpha(attachmentLoading ? 0.42f : hasContent ? 1f : 0.82f);
+        if (homeComposer != null) homeComposer.setEnabled(!attachmentLoading);
+    }
+
+    private LinearLayout buildAttachmentPreview() {
+        LinearLayout preview = horizontal(Gravity.CENTER_VERTICAL);
+        preview.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        preview.setBackground(Ui.glassSoft(this, 18));
+        preview.setElevation(Ui.dp(this, 3));
+        preview.setVisibility(View.GONE);
+        return preview;
+    }
+
+    private void refreshAttachmentPreview() {
+        if (attachmentPreview == null) return;
+        attachmentPreview.removeAllViews();
+        if (!attachmentLoading && pendingAttachment == null) {
+            attachmentPreview.setVisibility(View.GONE);
+            updateSendState();
+            updateHomeActionState();
+            return;
+        }
+        attachmentPreview.setVisibility(View.VISIBLE);
+        ViewGroup.LayoutParams rawParams = attachmentPreview.getLayoutParams();
+        if (rawParams instanceof LinearLayout.LayoutParams) {
+            ((LinearLayout.LayoutParams) rawParams).bottomMargin = Ui.dp(this, 8);
+            attachmentPreview.setLayoutParams(rawParams);
+        }
+
+        if (attachmentLoading) {
+            TextView glow = text("✦", 20, Ui.CYAN, false);
+            glow.setGravity(Gravity.CENTER);
+            attachmentPreview.addView(glow, new LinearLayout.LayoutParams(Ui.dp(this, 42), Ui.dp(this, 42)));
+            LinearLayout loadingText = vertical();
+            loadingText.addView(text("Подготавливаю файл…", 14, Ui.TEXT, true));
+            loadingText.addView(text("Читаю безопасно, без доступа ко всему хранилищу", 11, Ui.MUTED, false));
+            attachmentPreview.addView(loadingText, new LinearLayout.LayoutParams(0, wrap(), 1f));
+        } else {
+            View visual = attachmentVisual(pendingAttachment);
+            attachmentPreview.addView(visual, new LinearLayout.LayoutParams(Ui.dp(this, 46), Ui.dp(this, 46)));
+            LinearLayout labels = vertical();
+            TextView name = text(TextUtilsEx.compact(pendingAttachment.displayName, 38), 14, Ui.TEXT, true);
+            name.setMaxLines(1);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            labels.addView(name);
+            labels.addView(text(pendingAttachment.compactDescription(), 11, Ui.MUTED, false));
+            LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, wrap(), 1f);
+            labelParams.leftMargin = Ui.dp(this, 10);
+            attachmentPreview.addView(labels, labelParams);
+
+            TextView remove = text("×", 25, 0xFFD8DBE2, false);
+            remove.setGravity(Gravity.CENTER);
+            remove.setContentDescription("Убрать вложение");
+            remove.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x33FFFFFF));
+            remove.setOnClickListener(v -> clearPendingAttachment());
+            attachmentPreview.addView(remove, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
+        }
+        updateSendState();
+        updateHomeActionState();
+    }
+
+    private View attachmentVisual(AttachmentData attachment) {
+        if (attachment != null && attachment.hasVisualContent()) {
+            byte[] bytes = attachment.visualPages.get(0);
+            android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+            android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+            options.inSampleSize = 1;
+            while (bounds.outWidth / options.inSampleSize > 180
+                    || bounds.outHeight / options.inSampleSize > 180) options.inSampleSize *= 2;
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(
+                    bytes, 0, bytes.length, options);
+            if (bitmap != null) {
+                ImageView image = new ImageView(this);
+                image.setImageBitmap(bitmap);
+                image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                image.setClipToOutline(true);
+                image.setBackground(Ui.rounded(0xFF252831, 12, this));
+                return image;
+            }
+        }
+        TextView icon = text(attachment != null && attachment.isPdf() ? "PDF" : "TXT",
+                10, Ui.CYAN, true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(Ui.glassBlue(this, 12));
+        return icon;
+    }
+
+    private AttachmentData consumeAttachment() {
+        AttachmentData value = pendingAttachment;
+        pendingAttachment = null;
+        refreshAttachmentPreview();
+        return value;
+    }
+
+    private void clearPendingAttachment() {
+        pendingAttachment = null;
+        attachmentLoading = false;
+        refreshAttachmentPreview();
+        DebugLog.log("FILE", "Pending attachment cleared");
+    }
+
+    private String defaultAttachmentQuestion(AttachmentData attachment) {
+        if (attachment == null) return "Расскажи об этом";
+        if (attachment.isImage()) return "Что изображено на этой фотографии? Опиши важные детали.";
+        if (attachment.isPdf()) return "Прочитай этот PDF и кратко расскажи о главном.";
+        return "Прочитай этот файл, кратко перескажи содержание и выдели важное.";
+    }
+
+    private void showAttachmentMenu(View anchor, boolean allowNewChat) {
+        if (requestRunning || attachmentLoading) {
+            Toast.makeText(this, "Дождитесь текущей операции", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Выбрать фотографию");
+        menu.getMenu().add("Выбрать файл");
+        if (allowNewChat && screen == Screen.CHAT) menu.getMenu().add("Новый чат");
+        menu.setOnMenuItemClickListener(item -> {
+            String title = item.getTitle().toString();
+            if (title.equals("Выбрать фотографию")) openDocumentPicker(true);
+            else if (title.equals("Выбрать файл")) openDocumentPicker(false);
+            else if (title.equals("Новый чат")) createChat();
+            return true;
+        });
+        menu.show();
+    }
+
+    private void openDocumentPicker(boolean photoOnly) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType(photoOnly ? "image/*" : "*/*");
+            if (!photoOnly) {
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                        "image/*", "application/pdf", "text/*", "application/json",
+                        "application/xml", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.oasis.opendocument.text"
+                });
+            }
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivityForResult(intent, photoOnly ? PHOTO_REQUEST_CODE : FILE_REQUEST_CODE);
+        } catch (Exception error) {
+            DebugLog.error("FILE", error);
+            Toast.makeText(this, "Не удалось открыть выбор файлов", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void loadAttachment(Uri uri) {
+        if (uri == null) return;
+        pendingAttachment = null;
+        attachmentLoading = true;
+        refreshAttachmentPreview();
+        attachmentExecutor.execute(() -> {
+            try {
+                AttachmentData loaded = attachmentReader.read(uri);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    attachmentLoading = false;
+                    pendingAttachment = loaded;
+                    refreshAttachmentPreview();
+                    DebugLog.log("FILE", "Attachment ready; type=" + loaded.mimeType +
+                            ", text=" + loaded.extractedText.length() +
+                            ", visuals=" + loaded.visualPages.size());
+                });
+            } catch (Exception error) {
+                DebugLog.error("FILE", error);
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    attachmentLoading = false;
+                    pendingAttachment = null;
+                    refreshAttachmentPreview();
+                    String message = error.getMessage() == null
+                            ? "Не удалось прочитать файл" : error.getMessage();
+                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                });
+            }
+        });
     }
 
     private void scrollMessagesToEnd() {
@@ -910,6 +1143,11 @@ public final class MainActivity extends Activity {
     private void showSettings() {
         screen = Screen.SETTINGS;
         host.removeAllViews();
+        homeComposer = null;
+        homeActionButton = null;
+        composer = null;
+        sendButton = null;
+        attachmentPreview = null;
         DebugLog.log("NAV", "Open SETTINGS screen; return=" + settingsReturnScreen);
         LinearLayout root = vertical();
         root.setBackgroundColor(Color.TRANSPARENT);
@@ -920,7 +1158,7 @@ public final class MainActivity extends Activity {
         ImageButton back = Ui.iconButton(this, R.drawable.ic_back, "Назад");
         back.setOnClickListener(v -> onBackPressed());
         header.addView(back, new LinearLayout.LayoutParams(Ui.dp(this, 58), Ui.dp(this, 58)));
-        TextView title = text("Настройки", 18, Ui.TEXT, true);
+        TextView title = text("Настроить kvsai", 18, Ui.TEXT, true);
         title.setGravity(Gravity.CENTER);
         title.setBackground(Ui.glass(this, 99));
         title.setElevation(Ui.dp(this, 5));
@@ -936,32 +1174,64 @@ public final class MainActivity extends Activity {
         scroll.addView(content, matchWidthWrap());
         root.addView(scroll, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
 
-        content.addView(sectionLabel("ОТВЕТЫ"));
+        LinearLayout welcome = settingsCard();
+        welcome.setBackground(Ui.glassBlue(this, 22));
+        welcome.addView(text("Настройте меня под себя", 20, Ui.TEXT, true));
+        TextView welcomeHint = text("Здесь всё простыми словами. Выберите, как глубоко мне думать, " +
+                "нужен ли интернет и каким голосом отвечать.", 14, 0xFFD9E9FF, false);
+        welcomeHint.setLineSpacing(0, 1.1f);
+        LinearLayout.LayoutParams welcomeHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+        welcomeHintParams.topMargin = Ui.dp(this, 7);
+        welcome.addView(welcomeHint, welcomeHintParams);
+        content.addView(welcome, cardParams());
+
+        content.addView(sectionLabel("КАК МНЕ ОТВЕЧАТЬ"));
         LinearLayout webCard = settingsCard();
         Switch webSwitch = new Switch(this);
-        webSwitch.setText("Искать в интернете");
+        webSwitch.setText("Проверять информацию в интернете");
         webSwitch.setTextColor(Ui.TEXT);
         webSwitch.setTextSize(16);
         webSwitch.setChecked(settings.isWebEnabled());
         webSwitch.setButtonTintList(ColorStateList.valueOf(Ui.VIOLET));
         webCard.addView(webSwitch, matchWidthWrap());
-        TextView webHint = text("Бесплатно и без API-ключа. kvsai найдёт материалы и покажет ссылки на источники.",
-                13, Ui.MUTED, false);
+        TextView webHint = text("Когда вопрос зависит от свежих данных, я найду материалы и покажу, " +
+                "откуда взяла информацию. Это бесплатно и не требует ключа.", 13, Ui.MUTED, false);
         webHint.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams webHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         webHintParams.topMargin = Ui.dp(this, 7);
         webCard.addView(webHint, webHintParams);
         content.addView(webCard, cardParams());
 
+        LinearLayout reasoningCard = settingsCard();
+        Switch reasoningSwitch = new Switch(this);
+        reasoningSwitch.setText("Думать глубже");
+        reasoningSwitch.setTextColor(Ui.TEXT);
+        reasoningSwitch.setTextSize(16);
+        reasoningSwitch.setChecked(settings.isReasoningEnabled());
+        reasoningCard.addView(reasoningSwitch, matchWidthWrap());
+        TextView reasoningHint = text("Для сложных задач я потрачу больше времени: проверю предпосылки, " +
+                "альтернативы и факты, а затем покажу вывод и ключевые основания. Работает с подключённой AI-моделью.",
+                13, Ui.MUTED, false);
+        reasoningHint.setLineSpacing(0, 1.08f);
+        LinearLayout.LayoutParams reasoningHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+        reasoningHintParams.topMargin = Ui.dp(this, 7);
+        reasoningCard.addView(reasoningHint, reasoningHintParams);
+        TextView privacyHint = text("Скрытый внутренний черновик не показывается — только полезное объяснение результата.",
+                11, 0xFF86BFFF, false);
+        LinearLayout.LayoutParams privacyHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+        privacyHintParams.topMargin = Ui.dp(this, 8);
+        reasoningCard.addView(privacyHint, privacyHintParams);
+        content.addView(reasoningCard, cardParams());
+
         LinearLayout voiceCard = settingsCard();
         Switch voiceSwitch = new Switch(this);
-        voiceSwitch.setText("Автоозвучка ответов");
+        voiceSwitch.setText("Читать ответы вслух");
         voiceSwitch.setTextColor(Ui.TEXT);
         voiceSwitch.setTextSize(16);
         voiceSwitch.setChecked(settings.isVoiceEnabled());
         voiceCard.addView(voiceSwitch, matchWidthWrap());
-        TextView voiceHint = text("После ответа kvsai прочитает текст системным русским голосом. " +
-                "Микрофон в поле ввода работает независимо.", 13, Ui.MUTED, false);
+        TextView voiceHint = text("После ответа я прочитаю его системным голосом телефона. " +
+                "Микрофон в поле ввода можно использовать независимо от этой настройки.", 13, Ui.MUTED, false);
         voiceHint.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams voiceHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         voiceHintParams.topMargin = Ui.dp(this, 7);
@@ -974,29 +1244,37 @@ public final class MainActivity extends Activity {
         });
         content.addView(voiceCard, cardParams());
 
-        content.addView(sectionLabel("AI-ПРОВАЙДЕР"));
+        content.addView(sectionLabel("МОЗГ KVSAI"));
         LinearLayout aiCard = settingsCard();
         Switch aiSwitch = new Switch(this);
-        aiSwitch.setText("Использовать нейросеть");
+        aiSwitch.setText("Подключить умную AI-модель");
         aiSwitch.setTextColor(Ui.TEXT);
         aiSwitch.setTextSize(16);
         aiSwitch.setChecked(settings.isAiEnabled());
         aiCard.addView(aiSwitch, matchWidthWrap());
-        TextView aiHint = text("Поддерживаются OpenRouter, Ollama, LM Studio и любой OpenAI-совместимый API.",
-                13, Ui.MUTED, false);
+        TextView aiHint = text("Она помогает рассуждать, понимать фотографии и документы и вести живой диалог. " +
+                "Можно выбрать OpenRouter или свою локальную модель через Ollama/LM Studio.", 13, Ui.MUTED, false);
         aiHint.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams aiHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         aiHintParams.topMargin = Ui.dp(this, 7);
         aiHintParams.bottomMargin = Ui.dp(this, 13);
         aiCard.addView(aiHint, aiHintParams);
 
-        EditText endpoint = formField(aiCard, "Адрес API", settings.getEndpoint(),
+        TextView advancedToggle = text("Параметры подключения   ▾", 13, 0xFFA9CFFF, true);
+        advancedToggle.setGravity(Gravity.CENTER_VERTICAL);
+        advancedToggle.setPadding(Ui.dp(this, 13), 0, Ui.dp(this, 13), 0);
+        advancedToggle.setBackground(Ui.ripple(Ui.glassSoft(this, 13), 0x224A9CFF));
+        aiCard.addView(advancedToggle, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 44)));
+
+        LinearLayout advancedBox = vertical();
+        EditText endpoint = formField(advancedBox, "ГДЕ РАБОТАЕТ МОДЕЛЬ", settings.getEndpoint(),
                 "https://openrouter.ai/api/v1", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        EditText model = formField(aiCard, "Модель", settings.getModel(),
+        EditText model = formField(advancedBox, "КАКУЮ МОДЕЛЬ ИСПОЛЬЗОВАТЬ", settings.getModel(),
                 "openrouter/free", InputType.TYPE_CLASS_TEXT);
-        EditText apiKey = formField(aiCard, "API-ключ", "",
-                settings.hasApiKey() ? "Ключ сохранён и зашифрован ••••" : "Необязательно для локального API",
+        EditText apiKey = formField(advancedBox, "СЕКРЕТНЫЙ КЛЮЧ", "",
+                settings.hasApiKey() ? "Ключ сохранён в защищённом хранилище ••••" : "Для локальной модели обычно не нужен",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        apiKey.setFilterTouchesWhenObscured(true);
 
         LinearLayout keyActions = horizontal(Gravity.CENTER_VERTICAL);
         Button getKey = inlineButton("Получить ключ OpenRouter");
@@ -1016,7 +1294,21 @@ public final class MainActivity extends Activity {
         }
         LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         actionsParams.topMargin = Ui.dp(this, 4);
-        aiCard.addView(keyActions, actionsParams);
+        advancedBox.addView(keyActions, actionsParams);
+        advancedBox.setVisibility(settings.isAiEnabled() ? View.VISIBLE : View.GONE);
+        aiCard.addView(advancedBox, new LinearLayout.LayoutParams(matchValue(), wrap()));
+        advancedToggle.setText(settings.isAiEnabled()
+                ? "Параметры подключения   ▴" : "Параметры подключения   ▾");
+        advancedToggle.setOnClickListener(v -> {
+            boolean show = advancedBox.getVisibility() != View.VISIBLE;
+            advancedBox.setVisibility(show ? View.VISIBLE : View.GONE);
+            advancedToggle.setText(show ? "Параметры подключения   ▴" : "Параметры подключения   ▾");
+        });
+        aiSwitch.setOnCheckedChangeListener((button, checked) -> {
+            advancedBox.setVisibility(checked ? View.VISIBLE : View.GONE);
+            advancedToggle.setText(checked
+                    ? "Параметры подключения   ▴" : "Параметры подключения   ▾");
+        });
         content.addView(aiCard, cardParams());
 
         TextView localTip = text("💡 Для полностью локальной модели запустите Ollama или LM Studio на компьютере, " +
@@ -1029,16 +1321,16 @@ public final class MainActivity extends Activity {
         tipParams.bottomMargin = Ui.dp(this, 18);
         content.addView(localTip, tipParams);
 
-        content.addView(sectionLabel("РАЗРАБОТКА"));
+        content.addView(sectionLabel("ЧТО ПРОИСХОДИТ ВНУТРИ"));
         LinearLayout debugCard = settingsCard();
         Switch debugSwitch = new Switch(this);
-        debugSwitch.setText("Debug mode");
+        debugSwitch.setText("Показывать живой журнал");
         debugSwitch.setTextColor(Ui.TEXT);
         debugSwitch.setTextSize(16);
         debugSwitch.setChecked(settings.isDebugEnabled());
         debugCard.addView(debugSwitch, matchWidthWrap());
-        TextView debugHint = text("Показывает снизу живую консоль: навигацию, запросы, маршрутизацию, " +
-                "операции базы, HTTP-статусы, время выполнения и ошибки. API-ключи всегда скрываются.",
+        TextView debugHint = text("Внизу появится технический журнал: какие функции сработали, сколько занял " +
+                "запрос и где возникла ошибка. Секретные ключи и содержимое файлов туда не попадают.",
                 13, Ui.MUTED, false);
         debugHint.setLineSpacing(0, 1.08f);
         LinearLayout.LayoutParams debugHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
@@ -1051,7 +1343,7 @@ public final class MainActivity extends Activity {
         debugCard.addView(clearDebug, clearDebugParams);
         content.addView(debugCard, cardParams());
 
-        Button save = primaryButton("Сохранить настройки");
+        Button save = primaryButton("Готово, сохранить");
         save.setOnClickListener(v -> {
             String endpointValue = endpoint.getText().toString().trim();
             String modelValue = model.getText().toString().trim();
@@ -1067,10 +1359,11 @@ public final class MainActivity extends Activity {
             }
             try {
                 settings.save(aiSwitch.isChecked(), webSwitch.isChecked(), debugSwitch.isChecked(),
-                        endpointValue, modelValue, apiKey.getText().toString());
+                        reasoningSwitch.isChecked(), endpointValue, modelValue, apiKey.getText().toString());
                 DebugLog.setEnabled(debugSwitch.isChecked());
                 DebugLog.log("SETTINGS", "Saved: ai=" + aiSwitch.isChecked() +
                         ", web=" + webSwitch.isChecked() + ", debug=" + debugSwitch.isChecked() +
+                        ", reasoning=" + reasoningSwitch.isChecked() +
                         ", model=" + modelValue + ", endpoint=" + endpointValue +
                         ", newApiKeyProvided=" + !apiKey.getText().toString().isEmpty());
                 Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show();
@@ -1081,12 +1374,12 @@ public final class MainActivity extends Activity {
         });
         content.addView(save, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 52)));
 
-        content.addView(sectionLabel("ДАННЫЕ"));
+        content.addView(sectionLabel("ПАМЯТЬ И ЗАЩИТА"));
         LinearLayout dataCard = settingsCard();
-        TextView dataTitle = text("История хранится только на устройстве", 15, Ui.TEXT, true);
+        TextView dataTitle = text("Ваша история остаётся на устройстве", 15, Ui.TEXT, true);
         dataCard.addView(dataTitle);
-        TextView dataHint = text("Чаты сохраняются в локальной базе. API-ключ защищён Android Keystore.",
-                13, Ui.MUTED, false);
+        TextView dataHint = text("Чаты сохраняются локально, резервное копирование приложения отключено, " +
+                "а API-ключ шифруется аппаратным Android Keystore.", 13, Ui.MUTED, false);
         LinearLayout.LayoutParams dataHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         dataHintParams.topMargin = Ui.dp(this, 6);
         dataHintParams.bottomMargin = Ui.dp(this, 11);
@@ -1097,7 +1390,18 @@ public final class MainActivity extends Activity {
         dataCard.addView(clear, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 44)));
         content.addView(dataCard, cardParams());
 
-        TextView version = text("kvsai 1.2.0  •  Android 8.0+", 12, Ui.DIM, false);
+        LinearLayout securityCard = settingsCard();
+        securityCard.addView(text("✓ Проверка целостности активна", 15, 0xFFA8D2FF, true));
+        TextView securityHint = text("Release-сборка сверяет подпись и структуру APK при запуске. " +
+                "Код дополнительно уменьшается и обфусцируется R8; изменённая или переподписанная обычным ключом " +
+                "копия завершится с системной ошибкой безопасности.", 13, Ui.MUTED, false);
+        securityHint.setLineSpacing(0, 1.08f);
+        LinearLayout.LayoutParams securityHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+        securityHintParams.topMargin = Ui.dp(this, 7);
+        securityCard.addView(securityHint, securityHintParams);
+        content.addView(securityCard, cardParams());
+
+        TextView version = text("kvsai 1.3.0  •  Android 8.0+", 12, Ui.DIM, false);
         version.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         versionParams.topMargin = Ui.dp(this, 8);
@@ -1331,7 +1635,12 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != VOICE_REQUEST_CODE || resultCode != RESULT_OK || data == null) return;
+        if (resultCode != RESULT_OK || data == null) return;
+        if (requestCode == PHOTO_REQUEST_CODE || requestCode == FILE_REQUEST_CODE) {
+            loadAttachment(data.getData());
+            return;
+        }
+        if (requestCode != VOICE_REQUEST_CODE) return;
         ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
         if (results == null || results.isEmpty()) return;
         String value = results.get(0).trim();

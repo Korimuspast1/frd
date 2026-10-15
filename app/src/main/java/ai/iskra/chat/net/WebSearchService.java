@@ -26,7 +26,7 @@ public final class WebSearchService {
     private static final int MAX_RESULTS = 6;
 
     public List<SearchSource> search(String query) throws Exception {
-        DebugLog.log("SEARCH", "Query=\"" + query + "\"");
+        DebugLog.log("SEARCH", "Query prepared; chars=" + query.length());
         List<SearchSource> results = new ArrayList<>();
         Exception firstError = null;
 

@@ -36,7 +36,12 @@ public final class ChatMessage {
     }
 
     public static ChatMessage pending(long chatId) {
-        return new ChatMessage(-1, chatId, ROLE_ASSISTANT, "Ищу информацию и готовлю ответ…",
+        return pending(chatId, false);
+    }
+
+    public static ChatMessage pending(long chatId, boolean deepReasoning) {
+        return new ChatMessage(-1, chatId, ROLE_ASSISTANT,
+                deepReasoning ? "Рассуждаю глубже…" : "Готовлю ответ…",
                 Collections.emptyList(), System.currentTimeMillis(), State.PENDING);
     }
 

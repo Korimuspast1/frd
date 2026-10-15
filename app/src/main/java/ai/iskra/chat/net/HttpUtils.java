@@ -21,7 +21,7 @@ final class HttpUtils {
         connection.setConnectTimeout(12_000);
         connection.setReadTimeout(20_000);
         connection.setUseCaches(false);
-        connection.setRequestProperty("User-Agent", "kvsai/1.1 (Android; web research assistant)");
+        connection.setRequestProperty("User-Agent", "kvsai/1.3 (Android; multimodal assistant)");
         connection.setRequestProperty("Accept-Language", "ru,en;q=0.7");
         return connection;
     }
@@ -35,8 +35,7 @@ final class HttpUtils {
         DebugLog.log("HTTP", connection.getRequestMethod() + " " + connection.getURL().getHost() +
                 connection.getURL().getPath() + " → " + code + "; responseChars=" + body.length());
         if (code < 200 || code >= 300) {
-            DebugLog.log("HTTP", "Non-success response " + code + ": " +
-                    (body.length() > 240 ? body.substring(0, 240) + "…" : body));
+            DebugLog.log("HTTP", "Non-success response " + code + "; bodyChars=" + body.length());
             throw new HttpException(code, body);
         }
         return body;

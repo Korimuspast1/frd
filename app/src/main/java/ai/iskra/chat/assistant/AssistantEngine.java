@@ -6,6 +6,7 @@ import android.os.Looper;
 
 import ai.iskra.chat.data.AppSettings;
 import ai.iskra.chat.model.AssistantReply;
+import ai.iskra.chat.model.AttachmentData;
 import ai.iskra.chat.model.ChatMessage;
 import ai.iskra.chat.model.SearchSource;
 import ai.iskra.chat.net.AiClient;
@@ -34,42 +35,59 @@ public final class AssistantEngine {
     private final WeatherService weatherService = new WeatherService();
     private final AiClient aiClient = new AiClient();
     private final DeviceInfoProvider deviceInfo;
+    private int identityVariant = (int) (System.nanoTime() & 0x7fffffff);
 
     public AssistantEngine(Context context) {
         deviceInfo = new DeviceInfoProvider(context);
     }
 
-    public void ask(String question, List<ChatMessage> history,
-                    AppSettings.Snapshot settings, Callback callback) {
-        DebugLog.log("ASSISTANT", "Request queued: \"" + question + "\"; history=" + history.size() +
-                ", ai=" + settings.aiEnabled + ", web=" + settings.webEnabled);
+    public void ask(String question, List<ChatMessage> history, AppSettings.Snapshot settings,
+                    AttachmentData attachment, Callback callback) {
+        DebugLog.log("ASSISTANT", "Request queued; chars=" +
+                (question == null ? 0 : question.length()) + ", history=" + history.size() +
+                ", ai=" + settings.aiEnabled + ", web=" + settings.webEnabled +
+                ", reasoning=" + settings.reasoningEnabled + ", attachment=" + (attachment != null));
         executor.execute(() -> {
             long started = System.currentTimeMillis();
             try {
-                AssistantReply deviceReply = deviceInfo.tryAnswer(question);
-                if (deviceReply != null) {
-                    DebugLog.log("ROUTER", "Matched local device/time intent");
-                    postSuccess(callback, deviceReply, started, "device");
+                AssistantReply identity = identityReply(question);
+                if (identity != null) {
+                    DebugLog.log("ROUTER", "Matched protected kvsai identity intent");
+                    postSuccess(callback, identity, started, "identity");
                     return;
                 }
 
-                if (weatherService.isWeatherQuestion(question)) {
-                    DebugLog.log("ROUTER", "Matched live weather intent");
-                    AssistantReply weather = weatherService.forecast(question);
-                    postSuccess(callback, weather, started, "weather");
-                    return;
+                if (attachment == null) {
+                    AssistantReply deviceReply = deviceInfo.tryAnswer(question);
+                    if (deviceReply != null) {
+                        DebugLog.log("ROUTER", "Matched local device/time intent");
+                        postSuccess(callback, deviceReply, started, "device");
+                        return;
+                    }
+
+                    if (weatherService.isWeatherQuestion(question)) {
+                        DebugLog.log("ROUTER", "Matched live weather intent");
+                        AssistantReply weather = weatherService.forecast(question);
+                        postSuccess(callback, weather, started, "weather");
+                        return;
+                    }
                 }
 
                 AssistantReply local = localReply(question);
-                if (local != null && !settings.aiEnabled) {
+                if (attachment == null && local != null && !settings.aiEnabled) {
                     DebugLog.log("ROUTER", "Matched built-in local response");
                     postSuccess(callback, local, started, "local");
+                    return;
+                }
+                if (attachment != null && !settings.aiEnabled) {
+                    DebugLog.log("ROUTER", "Attachment opened locally; AI is disabled");
+                    postSuccess(callback, attachmentOfflineReply(attachment), started, "attachment-local");
                     return;
                 }
 
                 List<SearchSource> sources = Collections.emptyList();
                 Exception searchError = null;
-                if (settings.webEnabled) {
+                if (settings.webEnabled && attachment == null) {
                     try {
                         DebugLog.log("SEARCH", "Starting web research");
                         sources = webSearch.search(question);
@@ -86,7 +104,7 @@ public final class AssistantEngine {
                                 ", contextSources=" + sources.size());
                         String answer = aiClient.complete(
                                 settings.endpoint, settings.model, settings.apiKey,
-                                question, history, sources);
+                                question, history, sources, attachment, settings.reasoningEnabled);
                         postSuccess(callback, new AssistantReply(answer, sources), started, "ai");
                         return;
                     } catch (Exception providerError) {
@@ -131,6 +149,48 @@ public final class AssistantEngine {
         executor.shutdownNow();
     }
 
+    private AssistantReply identityReply(String raw) {
+        String question = raw == null ? "" : raw.trim().toLowerCase(new Locale("ru", "RU"));
+        boolean identity = question.contains("кто ты") || question.contains("ты кто")
+                || question.contains("как тебя зовут") || question.contains("твоё имя")
+                || question.contains("твое имя") || question.contains("какая ты модель")
+                || question.contains("кто тебя создал") || question.contains("чья ты")
+                || question.contains("who are you") || question.contains("what are you")
+                || question.contains("your name") || question.contains("what model are you");
+        if (!identity) return null;
+        String[] variants = {
+                "Я **kvsai** ✦ Ваша личная помощница: могу искать, объяснять, работать с кодом, фото и документами.",
+                "Меня зовут **kvsai**. Я здесь, чтобы разбираться в вопросах вместе с вами — от короткой справки до сложной задачи.",
+                "Я — **kvsai**: спокойная цифровая помощница внутри этого приложения. Могу отвечать сама или подключать выбранную вами AI-модель.",
+                "Это **kvsai** на связи ✦ Я помогаю находить актуальные данные, думать над задачами и понимать ваши файлы.",
+                "Я **kvsai**. Не просто название модели, а помощница этого приложения — с памятью чатов, интернет-поиском и режимом рассуждения.",
+                "Зовите меня **kvsai**. Я постараюсь отвечать живо, честно и настолько подробно, насколько нужно именно вам."
+        };
+        int index;
+        synchronized (this) {
+            identityVariant = (identityVariant + 1) & 0x7fffffff;
+            index = identityVariant % variants.length;
+        }
+        return new AssistantReply(variants[index], Collections.emptyList());
+    }
+
+    private AssistantReply attachmentOfflineReply(AttachmentData attachment) {
+        StringBuilder answer = new StringBuilder();
+        answer.append("Я открыла **").append(attachment.displayName).append("**");
+        if (attachment.hasText()) {
+            answer.append(" и прочитала текст. Вот начало:\n\n> ")
+                    .append(TextUtilsEx.compact(attachment.extractedText, 900).replace("\n", "\n> "));
+        } else if (attachment.isImage()) {
+            answer.append(" как изображение.");
+        } else if (attachment.isPdf()) {
+            answer.append(" и подготовила ").append(attachment.visualPages.size())
+                    .append(" страниц для анализа.");
+        }
+        answer.append("\n\nЧтобы понять содержание, описать фото или подробно разобрать документ, " +
+                "включите **AI-модель** в настройках. Сам файл никуда не отправляется, пока AI выключен.");
+        return new AssistantReply(answer.toString(), Collections.emptyList());
+    }
+
     private AssistantReply localReply(String raw) {
         String question = raw == null ? "" : raw.trim().toLowerCase(new Locale("ru", "RU"));
         if (question.matches("^(привет|здравствуй|здравствуйте|добрый (день|вечер|утро))[!., ]*$")) {
@@ -139,15 +199,12 @@ public final class AssistantEngine {
                             "Также я умею показывать реальные данные устройства и актуальную погоду.",
                     Collections.emptyList());
         }
-        if (question.contains("что ты умеешь") || question.contains("кто ты")) {
+        if (question.contains("что ты умеешь") || question.contains("что умеет kvsai")) {
             return new AssistantReply(
-                    "Я **kvsai**. Умею:\n\n" +
-                            "- искать актуальную информацию в интернете;\n" +
-                            "- узнавать погоду на сегодня, завтра и послезавтра;\n" +
-                            "- показывать время и характеристики этого Android-устройства;\n" +
-                            "- красиво отображать Markdown и код с подсветкой;\n" +
-                            "- сохранять чаты и показывать источники;\n" +
-                            "- работать с OpenRouter, Ollama, LM Studio и другими OpenAI-совместимыми сервисами.",
+                    "Я **kvsai**. Могу искать свежую информацию, проверять погоду, читать данные этого " +
+                            "Android-устройства, разбирать фотографии и документы, помогать с текстом и кодом. " +
+                            "А когда задача сложная — включите в настройках режим глубокого рассуждения.\n\n" +
+                            "Для анализа фото и файлов нужна подключённая мультимодальная AI-модель.",
                     Collections.emptyList());
         }
         return null;

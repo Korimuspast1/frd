@@ -4,7 +4,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -17,7 +16,6 @@ import android.widget.Button;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -131,17 +129,18 @@ public final class MessageAdapter extends BaseAdapter {
     }
 
     private void addPending(LinearLayout bubble, String value) {
-        LinearLayout progressRow = new LinearLayout(context);
-        progressRow.setGravity(Gravity.CENTER_VERTICAL);
-        ProgressBar progress = new ProgressBar(context, null, android.R.attr.progressBarStyleSmall);
-        progress.setIndeterminateTintList(ColorStateList.valueOf(Ui.CYAN));
-        progressRow.addView(progress, new LinearLayout.LayoutParams(Ui.dp(context, 22), Ui.dp(context, 22)));
-        TextView status = Ui.text(context, value, 14, Ui.MUTED);
-        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        statusParams.leftMargin = Ui.dp(context, 10);
-        progressRow.addView(status, statusParams);
-        bubble.addView(progressRow);
+        boolean deep = value != null && value.toLowerCase(java.util.Locale.US).contains("рассуж");
+        ThinkingIndicatorView indicator = new ThinkingIndicatorView(context, deep);
+        bubble.addView(indicator, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 58)));
+        if (deep) {
+            TextView note = Ui.text(context,
+                    "Покажу вывод и ключевые основания — без скрытого внутреннего черновика.",
+                    11, Ui.DIM);
+            note.setLineSpacing(0, 1.05f);
+            bubble.addView(note, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
     }
 
     private void addFormattedContent(LinearLayout bubble, String markdown, int maxWidth) {

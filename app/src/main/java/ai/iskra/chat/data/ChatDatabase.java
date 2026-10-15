@@ -97,7 +97,7 @@ public final class ChatDatabase extends SQLiteOpenHelper {
         try (Cursor cursor = getReadableDatabase().rawQuery(sql, args)) {
             while (cursor.moveToNext()) result.add(chatFromCursor(cursor));
         }
-        DebugLog.log("DB", "Listed chats; filter=\"" + query + "\"; count=" + result.size());
+        DebugLog.log("DB", "Listed chats; filterChars=" + query.length() + "; count=" + result.size());
         return result;
     }
 
@@ -162,7 +162,7 @@ public final class ChatDatabase extends SQLiteOpenHelper {
         values.put("title", clean);
         values.put("updated_at", System.currentTimeMillis());
         getWritableDatabase().update("chats", values, "id=?", new String[]{String.valueOf(chatId)});
-        DebugLog.log("DB", "Renamed chat id=" + chatId + " to \"" + clean + "\"");
+        DebugLog.log("DB", "Renamed chat id=" + chatId + "; titleChars=" + clean.length());
     }
 
     public void deleteChat(long chatId) {
