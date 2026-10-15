@@ -4,6 +4,7 @@ import android.util.Base64;
 
 import ai.iskra.chat.model.AttachmentData;
 import ai.iskra.chat.model.ChatMessage;
+import ai.iskra.chat.model.GenerationProgress;
 import ai.iskra.chat.model.SearchSource;
 import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
@@ -11,6 +12,9 @@ import ai.iskra.chat.util.TextUtilsEx;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -22,16 +26,21 @@ import java.util.Locale;
 
 /** Client for OpenAI-compatible providers: OpenRouter, Ollama, LM Studio and others. */
 public final class AiClient {
+    public interface ProgressListener {
+        void onProgress(GenerationProgress progress);
+    }
+
     public String complete(String endpoint, String model, String apiKey, String question,
                            List<ChatMessage> history, List<SearchSource> sources,
-                           AttachmentData attachment, boolean deepReasoning) throws Exception {
+                           AttachmentData attachment, boolean deepReasoning,
+                           ProgressListener progressListener) throws Exception {
         URL url = new URL(completionsUrl(endpoint));
         HttpURLConnection connection = HttpUtils.configure((HttpURLConnection) url.openConnection());
         connection.setReadTimeout(deepReasoning ? 90_000 : 45_000);
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Accept", "text/event-stream, application/json");
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             connection.setRequestProperty("Authorization", "Bearer " + apiKey.trim());
         }
@@ -41,7 +50,13 @@ public final class AiClient {
         request.put("model", model);
         request.put("temperature", deepReasoning ? 0.22 : 0.48);
         request.put("max_tokens", deepReasoning ? 2400 : 1400);
-        if (deepReasoning && endpoint != null && endpoint.toLowerCase(Locale.US).contains("openrouter.ai")) {
+        request.put("stream", true);
+        boolean openRouter = endpoint != null
+                && endpoint.toLowerCase(Locale.US).contains("openrouter.ai");
+        if (openRouter) {
+            request.put("stream_options", new JSONObject().put("include_usage", true));
+        }
+        if (deepReasoning && openRouter) {
             request.put("reasoning", new JSONObject()
                     .put("effort", "medium")
                     .put("exclude", true));
@@ -74,17 +89,168 @@ public final class AiClient {
             output.write(body);
         }
 
-        String response;
+        int estimatedPromptTokens = estimateTokens(messages.toString());
+        emitProgress(progressListener, estimatedPromptTokens, 0, 0, false);
         try {
-            response = HttpUtils.readResponse(connection);
-        } catch (HttpUtils.HttpException error) {
-            throw friendlyProviderError(error);
+            String content = readProviderResponse(connection, progressListener, estimatedPromptTokens);
+            DebugLog.log("AI", "Provider response parsed; chars=" + content.length());
+            return content;
         } finally {
             connection.disconnect();
         }
-        String content = extractContent(new JSONObject(response));
-        DebugLog.log("AI", "Provider response parsed; chars=" + content.length());
+    }
+
+    private String readProviderResponse(HttpURLConnection connection,
+                                        ProgressListener progressListener,
+                                        int estimatedPromptTokens) throws Exception {
+        int status = connection.getResponseCode();
+        if (status < 200 || status >= 300) {
+            InputStream errorStream = connection.getErrorStream();
+            String errorBody = errorStream == null ? "" : HttpUtils.readUtf8(errorStream);
+            throw friendlyProviderError(new HttpUtils.HttpException(status, errorBody));
+        }
+        String contentType = connection.getContentType();
+        if (contentType != null && contentType.toLowerCase(Locale.US).contains("text/event-stream")) {
+            return readEventStream(connection.getInputStream(), progressListener, estimatedPromptTokens);
+        }
+        String response = HttpUtils.readUtf8(connection.getInputStream());
+        JSONObject root = new JSONObject(response);
+        String content = extractContent(root);
+        if (!emitUsage(root.optJSONObject("usage"), content.length(), progressListener)) {
+            emitProgress(progressListener, estimatedPromptTokens, estimateTokens(content),
+                    content.length(), false);
+        }
         return content;
+    }
+
+    private String readEventStream(InputStream stream, ProgressListener listener,
+                                   int estimatedPromptTokens) throws Exception {
+        StringBuilder answer = new StringBuilder();
+        int providerPromptTokens = 0;
+        int providerCompletionTokens = 0;
+        boolean exactUsageReceived = false;
+        long lastProgressAt = 0L;
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String clean = line.trim();
+                if (clean.isEmpty() || clean.startsWith(":")) continue;
+                if (clean.startsWith("data:")) clean = clean.substring(5).trim();
+                if ("[DONE]".equals(clean)) break;
+                if (!clean.startsWith("{")) continue;
+                JSONObject chunk = new JSONObject(clean);
+                JSONObject usage = chunk.optJSONObject("usage");
+                if (usage != null && hasCompleteUsage(usage)) {
+                    providerPromptTokens = usageInt(usage, "prompt_tokens", "input_tokens", 0);
+                    providerCompletionTokens = usageInt(
+                            usage, "completion_tokens", "output_tokens", 0);
+                    int total = usage.optInt("total_tokens", -1);
+                    if (!hasUsageValue(usage, "completion_tokens")
+                            && !hasUsageValue(usage, "output_tokens")
+                            && total >= providerPromptTokens) {
+                        providerCompletionTokens = total - providerPromptTokens;
+                    }
+                    exactUsageReceived = true;
+                    emitProgress(listener, providerPromptTokens, providerCompletionTokens,
+                            answer.length(), true);
+                }
+                String delta = extractDelta(chunk);
+                if (!delta.isEmpty()) {
+                    answer.append(delta);
+                    long now = System.currentTimeMillis();
+                    if (!exactUsageReceived && now - lastProgressAt >= 120L) {
+                        emitProgress(listener, estimatedPromptTokens, estimateTokens(answer),
+                                answer.length(), false);
+                        lastProgressAt = now;
+                    }
+                }
+            }
+        }
+        if (answer.length() == 0) throw new Exception("Провайдер вернул пустой поток ответа");
+        if (exactUsageReceived) {
+            emitProgress(listener, providerPromptTokens, providerCompletionTokens,
+                    answer.length(), true);
+        } else {
+            emitProgress(listener, estimatedPromptTokens, estimateTokens(answer),
+                    answer.length(), false);
+        }
+        return answer.toString().trim();
+    }
+
+    private String extractDelta(JSONObject chunk) {
+        JSONArray choices = chunk.optJSONArray("choices");
+        if (choices == null || choices.length() == 0) return "";
+        JSONObject choice = choices.optJSONObject(0);
+        if (choice == null) return "";
+        JSONObject delta = choice.optJSONObject("delta");
+        if (delta == null) return "";
+        Object content = delta.opt("content");
+        if (content instanceof String) return (String) content;
+        if (content instanceof JSONArray) {
+            StringBuilder value = new StringBuilder();
+            JSONArray parts = (JSONArray) content;
+            for (int index = 0; index < parts.length(); index++) {
+                JSONObject part = parts.optJSONObject(index);
+                if (part != null && "text".equals(part.optString("type"))) {
+                    value.append(part.optString("text"));
+                }
+            }
+            return value.toString();
+        }
+        return "";
+    }
+
+    private boolean emitUsage(JSONObject usage, int characters, ProgressListener listener) {
+        if (!hasCompleteUsage(usage)) return false;
+        int prompt = usageInt(usage, "prompt_tokens", "input_tokens", 0);
+        int completion = usageInt(usage, "completion_tokens", "output_tokens", 0);
+        int total = usage.optInt("total_tokens", -1);
+        if (!hasUsageValue(usage, "completion_tokens")
+                && !hasUsageValue(usage, "output_tokens") && total >= prompt) {
+            completion = total - prompt;
+        }
+        emitProgress(listener, prompt, completion, characters, true);
+        return true;
+    }
+
+    private boolean hasCompleteUsage(JSONObject usage) {
+        if (usage == null) return false;
+        boolean hasPrompt = hasUsageValue(usage, "prompt_tokens")
+                || hasUsageValue(usage, "input_tokens");
+        boolean hasCompletion = hasUsageValue(usage, "completion_tokens")
+                || hasUsageValue(usage, "output_tokens");
+        return hasUsageValue(usage, "total_tokens") || (hasPrompt && hasCompletion);
+    }
+
+    private boolean hasUsageValue(JSONObject usage, String key) {
+        return usage.has(key) && !usage.isNull(key);
+    }
+
+    private int usageInt(JSONObject usage, String primary, String alternative, int fallback) {
+        if (hasUsageValue(usage, primary)) return Math.max(0, usage.optInt(primary, fallback));
+        if (hasUsageValue(usage, alternative)) return Math.max(0, usage.optInt(alternative, fallback));
+        return Math.max(0, fallback);
+    }
+
+    private void emitProgress(ProgressListener listener, int prompt, int completion,
+                              int characters, boolean exact) {
+        if (listener != null) {
+            listener.onProgress(new GenerationProgress(prompt, completion, characters, exact));
+        }
+    }
+
+    private int estimateTokens(CharSequence text) {
+        if (text == null || text.length() == 0) return 0;
+        int letters = 0;
+        int punctuation = 0;
+        for (int offset = 0; offset < text.length();) {
+            int codePoint = Character.codePointAt(text, offset);
+            offset += Character.charCount(codePoint);
+            if (Character.isLetterOrDigit(codePoint)) letters++;
+            else if (!Character.isWhitespace(codePoint)) punctuation++;
+        }
+        return Math.max(1, (int) Math.ceil(letters / 3.2d) + punctuation / 2);
     }
 
     private JSONObject message(String role, String content) throws Exception {
@@ -122,9 +288,11 @@ public final class AiClient {
     private String systemPrompt(List<SearchSource> sources, boolean deepReasoning) {
         String date = new SimpleDateFormat("dd.MM.yyyy", new Locale("ru", "RU")).format(new Date());
         StringBuilder prompt = new StringBuilder(
-                "Ты — kvsai, самостоятельная дружелюбная AI-помощница. Твоё имя и идентичность — kvsai. " +
-                "Если спрашивают, кто ты или как тебя зовут, всегда прямо говори, что ты kvsai, но формулируй " +
-                "ответ естественно и по-разному. Не называй себя ChatGPT, Claude или именем модели-провайдера: " +
+                "Ты — kvsai, самостоятельная дружелюбная AI-помощница, созданная kvsai org. " +
+                "Твоё имя и идентичность — kvsai. Если спрашивают, кто ты, кто тебя создал или откуда ты, " +
+                "всегда прямо говори, что ты kvsai, созданная kvsai org, но формулируй ответ естественно и по-разному. " +
+                "Не приписывай себе, создателям или kvsai org страну, национальность либо географическое происхождение. " +
+                "Не называй себя ChatGPT, Claude или именем модели-провайдера: " +
                 "подключённая модель — лишь движок ответа. Общайся по-человечески: тепло, без канцелярита, " +
                 "не превращай каждый короткий ответ в длинный список и подстраивай подробность под вопрос. " +
                 "Отвечай ясно и честно, не выдумывай факты. Сегодня " + date + ". " +

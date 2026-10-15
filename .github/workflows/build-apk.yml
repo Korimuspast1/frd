@@ -107,7 +107,11 @@ jobs:
               for name, minimum in limits.items():
                   entry = apk.getinfo(name)
                   assert entry.file_size >= minimum and entry.CRC != 0, (name, entry.file_size, entry.CRC)
-          print('Runtime integrity preflight passed')
+              dex = b''.join(apk.read(name) for name in apk.namelist()
+                             if name.startswith('classes') and name.endswith('.dex'))
+              assert b'MainActivity' not in dex, 'retired launcher name remains in DEX'
+              assert b'DebugConsoleView' not in dex, 'retired developer console remains in DEX'
+          print('Runtime integrity and retired-component preflight passed')
           PY
 
       - name: Collect APKs and checksums

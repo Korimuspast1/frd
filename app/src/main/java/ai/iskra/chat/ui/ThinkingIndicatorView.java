@@ -9,6 +9,7 @@ import android.graphics.Shader;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 
+import ai.iskra.chat.model.GenerationProgress;
 import ai.iskra.chat.util.Ui;
 
 /** A calm animated status that shows high-level progress without exposing private chain-of-thought. */
@@ -23,9 +24,11 @@ public final class ThinkingIndicatorView extends View {
     private final Paint orbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint tokenPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final boolean deep;
     private ValueAnimator animator;
     private float phase;
+    private String tokenLabel = "ожидаю данные о токенах…";
 
     public ThinkingIndicatorView(Context context, boolean deep) {
         super(context);
@@ -33,22 +36,43 @@ public final class ThinkingIndicatorView extends View {
         textPaint.setColor(0xFFD7DFEB);
         textPaint.setTextSize(context.getResources().getDisplayMetrics().scaledDensity * 14f);
         textPaint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        tokenPaint.setColor(0xFF8290A5);
+        tokenPaint.setTextSize(context.getResources().getDisplayMetrics().scaledDensity * 11.5f);
+        tokenPaint.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL));
         dotPaint.setColor(Ui.CYAN);
-        setContentDescription(deep ? "kvsai рассуждает и проверяет ответ" : "kvsai готовит ответ");
+        updateContentDescription();
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
 
+    /** Updates the compact live usage line. Estimated client-side counts always carry ≈. */
+    public void setProgress(GenerationProgress progress) {
+        if (progress == null) return;
+        int total = Math.max(0, progress.totalTokens());
+        if (progress.exact()) {
+            tokenLabel = total + " токенов • точно";
+        } else {
+            tokenLabel = "≈ " + total + " токенов • оценка";
+        }
+        updateContentDescription();
+        invalidate();
+    }
+
+    private void updateContentDescription() {
+        String action = deep ? "kvsai рассуждает и проверяет ответ" : "kvsai готовит ответ";
+        setContentDescription(action + ", " + tokenLabel);
+    }
+
     @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int desiredWidth = Ui.dp(getContext(), 260);
+        int desiredWidth = Ui.dp(getContext(), 280);
         int width = resolveSize(desiredWidth, widthMeasureSpec);
-        setMeasuredDimension(width, Ui.dp(getContext(), 58));
+        setMeasuredDimension(width, Ui.dp(getContext(), 68));
     }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         float density = getResources().getDisplayMetrics().density;
         float centerX = 20f * density;
-        float centerY = getHeight() / 2f;
+        float centerY = 25f * density;
         float pulse = 0.5f + 0.5f * (float) Math.sin(phase * Math.PI * 2.0);
         float radius = (8f + pulse * 2f) * density;
         orbPaint.setShader(new RadialGradient(centerX - radius * 0.2f, centerY - radius * 0.25f,
@@ -71,6 +95,7 @@ public final class ThinkingIndicatorView extends View {
             canvas.drawCircle(textX + labelWidth + (10f + index * 7f) * density,
                     centerY + 1f * density, (1.8f + Math.max(0, (float) wave) * 0.6f) * density, dotPaint);
         }
+        canvas.drawText(tokenLabel, textX, 52f * density, tokenPaint);
     }
 
     @Override protected void onAttachedToWindow() {

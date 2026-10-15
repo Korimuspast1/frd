@@ -8,6 +8,7 @@ import ai.iskra.chat.data.AppSettings;
 import ai.iskra.chat.model.AssistantReply;
 import ai.iskra.chat.model.AttachmentData;
 import ai.iskra.chat.model.ChatMessage;
+import ai.iskra.chat.model.GenerationProgress;
 import ai.iskra.chat.model.SearchSource;
 import ai.iskra.chat.net.AiClient;
 import ai.iskra.chat.net.WeatherService;
@@ -25,6 +26,7 @@ import java.util.concurrent.Executors;
 
 public final class AssistantEngine {
     public interface Callback {
+        void onProgress(GenerationProgress progress);
         void onSuccess(AssistantReply reply);
         void onError(String message);
     }
@@ -104,7 +106,8 @@ public final class AssistantEngine {
                                 ", contextSources=" + sources.size());
                         String answer = aiClient.complete(
                                 settings.endpoint, settings.model, settings.apiKey,
-                                question, history, sources, attachment, settings.reasoningEnabled);
+                                question, history, sources, attachment, settings.reasoningEnabled,
+                                progress -> mainHandler.post(() -> callback.onProgress(progress)));
                         postSuccess(callback, new AssistantReply(answer, sources), started, "ai");
                         return;
                     } catch (Exception providerError) {
@@ -154,17 +157,20 @@ public final class AssistantEngine {
         boolean identity = question.contains("кто ты") || question.contains("ты кто")
                 || question.contains("как тебя зовут") || question.contains("твоё имя")
                 || question.contains("твое имя") || question.contains("какая ты модель")
-                || question.contains("кто тебя создал") || question.contains("чья ты")
+                || question.contains("кто тебя создал") || question.contains("кто тебя разработал")
+                || question.contains("чья ты") || question.contains("откуда ты")
                 || question.contains("who are you") || question.contains("what are you")
-                || question.contains("your name") || question.contains("what model are you");
+                || question.contains("your name") || question.contains("what model are you")
+                || question.contains("who created you") || question.contains("who made you")
+                || question.contains("where are you from");
         if (!identity) return null;
         String[] variants = {
-                "Я **kvsai** ✦ Ваша личная помощница: могу искать, объяснять, работать с кодом, фото и документами.",
-                "Меня зовут **kvsai**. Я здесь, чтобы разбираться в вопросах вместе с вами — от короткой справки до сложной задачи.",
-                "Я — **kvsai**: спокойная цифровая помощница внутри этого приложения. Могу отвечать сама или подключать выбранную вами AI-модель.",
-                "Это **kvsai** на связи ✦ Я помогаю находить актуальные данные, думать над задачами и понимать ваши файлы.",
-                "Я **kvsai**. Не просто название модели, а помощница этого приложения — с памятью чатов, интернет-поиском и режимом рассуждения.",
-                "Зовите меня **kvsai**. Я постараюсь отвечать живо, честно и настолько подробно, насколько нужно именно вам."
+                "Я **kvsai** ✦ Личная помощница, созданная **kvsai org**: могу искать, объяснять, работать с кодом, фото и документами.",
+                "Меня зовут **kvsai**. Я создана **kvsai org**, чтобы разбираться в вопросах вместе с вами — от короткой справки до сложной задачи.",
+                "Я — **kvsai**, спокойная цифровая помощница от **kvsai org**. Могу отвечать сама или подключать выбранную вами AI-модель.",
+                "Это **kvsai** на связи ✦ Меня создала **kvsai org**, а я помогаю находить актуальные данные, думать над задачами и понимать файлы.",
+                "Я **kvsai**, созданная **kvsai org**. Это не название модели, а помощница приложения с памятью чатов, поиском и рассуждением.",
+                "Зовите меня **kvsai**. Я создана **kvsai org** и постараюсь отвечать живо, честно и настолько подробно, насколько нужно вам."
         };
         int index;
         synchronized (this) {

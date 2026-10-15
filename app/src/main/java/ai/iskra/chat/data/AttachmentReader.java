@@ -24,6 +24,9 @@ import org.xmlpull.v1.XmlPullParser;
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -36,11 +39,13 @@ import java.util.zip.ZipInputStream;
 
 /** Reads a user-selected document without broad storage permissions. */
 public final class AttachmentReader {
-    private static final long MAX_SOURCE_BYTES = 20L * 1024L * 1024L;
+    /** Public attachment ceiling: exactly 66 MiB. Processing remains bounded below this limit. */
+    private static final long MAX_SOURCE_BYTES = 66L * 1024L * 1024L;
     private static final int MAX_TEXT_BYTES = 768 * 1024;
     private static final int MAX_TEXT_CHARS = 60_000;
     private static final int MAX_IMAGE_EDGE = 1_600;
     private static final int MAX_PDF_PAGES = 4;
+    private static final String CACHE_PREFIX = "kvsai-attachment-";
 
     private final Context context;
     private final ContentResolver resolver;
@@ -48,51 +53,58 @@ public final class AttachmentReader {
     public AttachmentReader(Context context) {
         this.context = context.getApplicationContext();
         this.resolver = this.context.getContentResolver();
+        removeStaleCacheFiles();
     }
 
     public AttachmentData read(Uri uri) throws Exception {
         if (uri == null) throw new IOException("Файл не выбран");
-        Metadata metadata = metadata(uri);
-        if (metadata.size > MAX_SOURCE_BYTES) {
-            throw new IOException("Файл слишком большой. Максимальный размер — 20 МБ");
+        Metadata supplied = metadata(uri);
+        if (supplied.size > MAX_SOURCE_BYTES) {
+            throw tooLarge();
         }
+
+        // A content provider may omit or lie about SIZE. Materialising through a bounded stream
+        // guarantees that an unknown-size URI can never bypass the 66 MiB ceiling, while keeping
+        // large compressed documents and photos off the Java heap.
+        File local = copyToBoundedCache(uri);
+        Metadata metadata = new Metadata(supplied.name, supplied.mime, local.length());
         String lowerName = metadata.name.toLowerCase(Locale.US);
         DebugLog.log("FILE", "Reading attachment; nameChars=" + metadata.name.length() + ", type=" +
                 metadata.mime + ", bytes=" + metadata.size);
 
-        if (metadata.mime.startsWith("image/") || isImageName(lowerName)) {
-            byte[] jpeg = prepareImage(uri);
-            return new AttachmentData(metadata.name, metadata.mime, metadata.size, "",
-                    Collections.singletonList(jpeg), 1);
+        try {
+            if (metadata.mime.startsWith("image/") || isImageName(lowerName)) {
+                byte[] jpeg = prepareImage(local);
+                return new AttachmentData(metadata.name, metadata.mime, metadata.size, "",
+                        Collections.singletonList(jpeg), 1);
+            }
+            if ("application/pdf".equals(metadata.mime) || lowerName.endsWith(".pdf")) {
+                return readPdf(local, metadata);
+            }
+            if (isOfficeArchive(lowerName, metadata.mime)) {
+                String text = extractOfficeText(local, officeType(lowerName, metadata.mime));
+                if (text.isEmpty()) throw new IOException("В этом документе не удалось найти читаемый текст");
+                return new AttachmentData(metadata.name, metadata.mime, metadata.size,
+                        trimText(text), Collections.emptyList(), 0);
+            }
+            if (isText(metadata.mime, lowerName)) {
+                byte[] bytes = readPrefix(local, MAX_TEXT_BYTES);
+                if (looksBinary(bytes)) throw new IOException("Файл выглядит как двоичный и не содержит обычного текста");
+                String text = new String(bytes, StandardCharsets.UTF_8).replace("\u0000", "");
+                if (local.length() > bytes.length) text += "\n\n[Показана начальная часть большого файла]";
+                return new AttachmentData(metadata.name, metadata.mime, metadata.size,
+                        trimText(text), Collections.emptyList(), 0);
+            }
+            throw new IOException("Этот формат пока нельзя прочитать. Выберите фото, PDF, DOCX, TXT, Markdown, JSON, CSV или файл с кодом");
+        } finally {
+            if (!local.delete()) local.deleteOnExit();
         }
-        if ("application/pdf".equals(metadata.mime) || lowerName.endsWith(".pdf")) {
-            return readPdf(uri, metadata);
-        }
-        if (isOfficeArchive(lowerName, metadata.mime)) {
-            byte[] bytes = readLimited(uri, (int) MAX_SOURCE_BYTES);
-            String text = extractOfficeText(bytes, officeType(lowerName, metadata.mime));
-            if (text.isEmpty()) throw new IOException("В этом документе не удалось найти читаемый текст");
-            return new AttachmentData(metadata.name, metadata.mime, metadata.size,
-                    trimText(text), Collections.emptyList(), 0);
-        }
-        if (isText(metadata.mime, lowerName)) {
-            byte[] bytes = readLimited(uri, MAX_TEXT_BYTES);
-            if (looksBinary(bytes)) throw new IOException("Файл выглядит как двоичный и не содержит обычного текста");
-            String text = new String(bytes, StandardCharsets.UTF_8).replace("\u0000", "");
-            return new AttachmentData(metadata.name, metadata.mime, metadata.size,
-                    trimText(text), Collections.emptyList(), 0);
-        }
-        throw new IOException("Этот формат пока нельзя прочитать. Выберите фото, PDF, DOCX, TXT, Markdown, JSON, CSV или файл с кодом");
     }
 
-    private AttachmentData readPdf(Uri uri, Metadata metadata) throws Exception {
+    private AttachmentData readPdf(File file, Metadata metadata) throws Exception {
         List<byte[]> pages = new ArrayList<>();
-        try (ParcelFileDescriptor descriptor = resolver.openFileDescriptor(uri, "r")) {
-            if (descriptor == null) throw new IOException("Не удалось открыть PDF");
-            long statSize = descriptor.getStatSize();
-            if (statSize > MAX_SOURCE_BYTES) {
-                throw new IOException("PDF слишком большой. Максимальный размер — 20 МБ");
-            }
+        try (ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(
+                file, ParcelFileDescriptor.MODE_READ_ONLY)) {
             try (PdfRenderer renderer = new PdfRenderer(descriptor)) {
                 int pageCount = renderer.getPageCount();
                 int limit = Math.min(pageCount, MAX_PDF_PAGES);
@@ -101,7 +113,6 @@ public final class AttachmentReader {
                         float scale = Math.min(2f, Math.min(
                                 MAX_IMAGE_EDGE / (float) Math.max(1, page.getWidth()),
                                 MAX_IMAGE_EDGE / (float) Math.max(1, page.getHeight())));
-                        scale = Math.max(0.15f, scale);
                         int width = Math.max(1, Math.round(page.getWidth() * scale));
                         int height = Math.max(1, Math.round(page.getHeight() * scale));
                         Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
@@ -119,11 +130,10 @@ public final class AttachmentReader {
         }
     }
 
-    private byte[] prepareImage(Uri uri) throws Exception {
-        byte[] encoded = readLimited(uri, (int) MAX_SOURCE_BYTES);
+    private byte[] prepareImage(File file) throws Exception {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeByteArray(encoded, 0, encoded.length, bounds);
+        BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
             throw new IOException("Не удалось распознать изображение");
         }
@@ -138,9 +148,9 @@ public final class AttachmentReader {
                 || bounds.outHeight / options.inSampleSize > MAX_IMAGE_EDGE) {
             options.inSampleSize *= 2;
         }
-        Bitmap decoded = BitmapFactory.decodeByteArray(encoded, 0, encoded.length, options);
+        Bitmap decoded = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
         if (decoded == null) throw new IOException("Не удалось декодировать изображение");
-        int rotation = imageRotation(encoded);
+        int rotation = imageRotation(file);
         if (rotation != 0) {
             Matrix matrix = new Matrix();
             matrix.postRotate(rotation);
@@ -163,9 +173,9 @@ public final class AttachmentReader {
         return jpeg;
     }
 
-    private int imageRotation(byte[] encoded) {
+    private int imageRotation(File file) {
         try {
-            ExifInterface exif = new ExifInterface(new ByteArrayInputStream(encoded));
+            ExifInterface exif = new ExifInterface(file.getAbsolutePath());
             int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION,
                     ExifInterface.ORIENTATION_NORMAL);
             if (orientation == ExifInterface.ORIENTATION_ROTATE_90) return 90;
@@ -215,27 +225,63 @@ public final class AttachmentReader {
         return new Metadata(name, mime, size);
     }
 
-    private byte[] readLimited(Uri uri, int maxBytes) throws IOException {
-        try (InputStream raw = resolver.openInputStream(uri)) {
-            if (raw == null) throw new IOException("Не удалось открыть файл");
-            try (BufferedInputStream input = new BufferedInputStream(raw);
-                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                byte[] buffer = new byte[8192];
-                int total = 0;
-                int count;
-                while ((count = input.read(buffer)) != -1) {
-                    total += count;
-                    if (total > maxBytes) throw new IOException("Файл слишком большой для безопасного чтения");
-                    output.write(buffer, 0, count);
-                }
-                return output.toByteArray();
-            }
+    private void removeStaleCacheFiles() {
+        File[] files = context.getCacheDir().listFiles((directory, name) ->
+                name != null && name.startsWith(CACHE_PREFIX));
+        if (files == null) return;
+        for (File file : files) {
+            if (file != null && file.isFile()) file.delete();
         }
     }
 
-    private String extractOfficeText(byte[] archive, String lowerName) throws Exception {
+    private File copyToBoundedCache(Uri uri) throws IOException {
+        File outputFile = File.createTempFile(CACHE_PREFIX, ".bin", context.getCacheDir());
+        boolean complete = false;
+        try (InputStream raw = resolver.openInputStream(uri)) {
+            if (raw == null) throw new IOException("Не удалось открыть файл");
+            try (BufferedInputStream input = new BufferedInputStream(raw);
+                 FileOutputStream output = new FileOutputStream(outputFile)) {
+                byte[] buffer = new byte[16 * 1024];
+                long total = 0L;
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    total += count;
+                    if (total > MAX_SOURCE_BYTES) throw tooLarge();
+                    output.write(buffer, 0, count);
+                }
+                output.getFD().sync();
+                complete = true;
+                return outputFile;
+            }
+        } finally {
+            if (!complete && !outputFile.delete()) outputFile.deleteOnExit();
+        }
+    }
+
+    private byte[] readPrefix(File file, int maxBytes) throws IOException {
+        int capacity = (int) Math.min(file.length(), maxBytes);
+        try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(file));
+             ByteArrayOutputStream output = new ByteArrayOutputStream(Math.max(32, capacity))) {
+            byte[] buffer = new byte[8192];
+            int remaining = maxBytes;
+            while (remaining > 0) {
+                int count = input.read(buffer, 0, Math.min(buffer.length, remaining));
+                if (count == -1) break;
+                output.write(buffer, 0, count);
+                remaining -= count;
+            }
+            return output.toByteArray();
+        }
+    }
+
+    private IOException tooLarge() {
+        return new IOException("Файл слишком большой. Максимальный размер — 66 МБ");
+    }
+
+    private String extractOfficeText(File archive, String lowerName) throws Exception {
         StringBuilder result = new StringBuilder();
-        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
+        try (ZipInputStream zip = new ZipInputStream(
+                new BufferedInputStream(new FileInputStream(archive)))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null && result.length() < MAX_TEXT_CHARS) {
                 String path = entry.getName().toLowerCase(Locale.US);

@@ -16,6 +16,10 @@ public final class AppSettings {
     public AppSettings(Context context) {
         Context app = context.getApplicationContext();
         preferences = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        // Debug UI was retired. Remove the legacy flag so an upgraded install cannot revive it.
+        if (preferences.contains("debug_enabled")) {
+            preferences.edit().remove("debug_enabled").apply();
+        }
         secureKeyStore = new SecureKeyStore(app);
     }
 
@@ -25,10 +29,6 @@ public final class AppSettings {
 
     public boolean isWebEnabled() {
         return preferences.getBoolean("web_enabled", true);
-    }
-
-    public boolean isDebugEnabled() {
-        return preferences.getBoolean("debug_enabled", false);
     }
 
     public boolean isVoiceEnabled() {
@@ -59,15 +59,14 @@ public final class AppSettings {
         return secureKeyStore.hasKey();
     }
 
-    public void save(boolean aiEnabled, boolean webEnabled, boolean debugEnabled,
-                     boolean reasoningEnabled, String endpoint, String model,
-                     String newApiKey) throws Exception {
+    public void save(boolean aiEnabled, boolean webEnabled, boolean reasoningEnabled,
+                     String endpoint, String model, String newApiKey) throws Exception {
         String cleanEndpoint = endpoint == null ? "" : endpoint.trim();
         String cleanModel = model == null ? "" : model.trim();
         preferences.edit()
                 .putBoolean("ai_enabled", aiEnabled)
                 .putBoolean("web_enabled", webEnabled)
-                .putBoolean("debug_enabled", debugEnabled)
+                .remove("debug_enabled")
                 .putBoolean("reasoning_enabled", reasoningEnabled)
                 .putString("endpoint", cleanEndpoint.isEmpty() ? DEFAULT_ENDPOINT : cleanEndpoint)
                 .putString("model", cleanModel.isEmpty() ? DEFAULT_MODEL : cleanModel)

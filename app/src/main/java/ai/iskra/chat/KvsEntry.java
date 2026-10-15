@@ -19,6 +19,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
+import android.view.WindowInsetsAnimation;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
@@ -45,12 +46,13 @@ import ai.iskra.chat.model.AssistantReply;
 import ai.iskra.chat.model.AttachmentData;
 import ai.iskra.chat.model.Chat;
 import ai.iskra.chat.model.ChatMessage;
+import ai.iskra.chat.model.GenerationProgress;
 import ai.iskra.chat.ui.AmbientBackgroundView;
 import ai.iskra.chat.ui.AssistantOrbView;
 import ai.iskra.chat.ui.ChatListAdapter;
-import ai.iskra.chat.ui.DebugConsoleView;
 import ai.iskra.chat.ui.MessageAdapter;
 import ai.iskra.chat.ui.ShatterOverlay;
+import ai.iskra.chat.ui.TypingCompanionView;
 import ai.iskra.chat.security.IntegrityGuard;
 import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
@@ -63,7 +65,7 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public final class MainActivity extends Activity {
+public final class KvsEntry extends Activity {
     private static final int VOICE_REQUEST_CODE = 4281;
     private static final int PHOTO_REQUEST_CODE = 4282;
     private static final int FILE_REQUEST_CODE = 4283;
@@ -96,12 +98,14 @@ public final class MainActivity extends Activity {
     private ListView messageList;
     private EditText composer;
     private ImageButton sendButton;
+    private TypingCompanionView typingCompanion;
     private TextView currentChatTitle;
     private TextView currentMode;
 
     private boolean requestRunning;
     private boolean requestDeepReasoning;
     private long requestChatId = -1;
+    private GenerationProgress requestProgress;
     private String lastQuestion = "";
     private TextToSpeech textToSpeech;
     private boolean textToSpeechReady;
@@ -112,8 +116,7 @@ public final class MainActivity extends Activity {
         IntegrityGuard.verifyOrThrow(this);
         configureWindow();
         settings = new AppSettings(this);
-        DebugLog.initialize(settings.isDebugEnabled());
-        DebugLog.log("APP", "kvsai 1.3.1 starting; Android=" + Build.VERSION.RELEASE +
+        DebugLog.log("APP", "kvsai 1.4.0 starting; Android=" + Build.VERSION.RELEASE +
                 ", sdk=" + Build.VERSION.SDK_INT + ", device=" + Build.MANUFACTURER + " " + Build.MODEL);
         database = new ChatDatabase(this);
         assistant = new AssistantEngine(this);
@@ -123,7 +126,7 @@ public final class MainActivity extends Activity {
         host = new FrameLayout(this);
         host.setBackgroundColor(Ui.BG);
         setContentView(host);
-        applyAndroid15Insets();
+        applyResponsiveInsets();
         showHome();
     }
 
@@ -132,20 +135,53 @@ public final class MainActivity extends Activity {
         window.setStatusBarColor(Ui.BG);
         window.setNavigationBarColor(Ui.BG);
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+ exposes animated IME insets; the root consumes their live height below.
+            window.setDecorFitsSystemWindows(false);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.setStatusBarContrastEnforced(false);
             window.setNavigationBarContrastEnforced(false);
         }
-        window.getDecorView().setSystemUiVisibility(0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && window.getInsetsController() != null) {
+            window.getInsetsController().setSystemBarsAppearance(0,
+                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+        } else {
+            window.getDecorView().setSystemUiVisibility(0);
+        }
     }
 
-    private void applyAndroid15Insets() {
-        if (Build.VERSION.SDK_INT >= 35) {
-            host.setOnApplyWindowInsetsListener((view, insets) -> {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-                view.setPadding(0, bars.top, 0, bars.bottom);
+    private void applyResponsiveInsets() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            // adjustResize remains the reliable path on Android 8–10.
+            return;
+        }
+        host.setOnApplyWindowInsetsListener((view, insets) -> {
+            applyInsetPadding(view, insets);
+            return insets;
+        });
+        host.setWindowInsetsAnimationCallback(new WindowInsetsAnimation.Callback(
+                WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            @Override
+            public WindowInsets onProgress(WindowInsets insets,
+                                           List<WindowInsetsAnimation> runningAnimations) {
+                applyInsetPadding(host, insets);
                 return insets;
-            });
+            }
+        });
+        host.requestApplyInsets();
+    }
+
+    private void applyInsetPadding(View view, WindowInsets insets) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+        android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+        // IME bottom is animated by Android. Padding the one stable root simultaneously shrinks
+        // the message list and lifts the composer instead of overlaying either one.
+        int bottom = Math.max(bars.bottom, ime.bottom);
+        if (view.getPaddingTop() != bars.top || view.getPaddingBottom() != bottom) {
+            view.setPadding(bars.left, bars.top, bars.right, bottom);
         }
     }
 
@@ -196,6 +232,7 @@ public final class MainActivity extends Activity {
         drawerOverlay = null;
         composer = null;
         sendButton = null;
+        typingCompanion = null;
         messageAdapter = null;
         messageList = null;
 
@@ -315,9 +352,20 @@ public final class MainActivity extends Activity {
             return false;
         });
         homeComposer.addTextChangedListener(new SimpleTextWatcher() {
-            @Override public void afterTextChanged(Editable value) { updateHomeActionState(); }
+            @Override public void afterTextChanged(Editable value) {
+                updateHomeActionState();
+                updateTypingCompanion(value, homeComposer.hasFocus());
+            }
         });
+        homeComposer.setOnFocusChangeListener((view, focused) ->
+                updateTypingCompanion(homeComposer.getText(), focused));
         box.addView(homeComposer, new LinearLayout.LayoutParams(0, Ui.dp(this, 58), 1f));
+
+        typingCompanion = new TypingCompanionView(this);
+        LinearLayout.LayoutParams homeCompanionParams = new LinearLayout.LayoutParams(
+                Ui.dp(this, 38), Ui.dp(this, 44));
+        homeCompanionParams.rightMargin = Ui.dp(this, 3);
+        box.addView(typingCompanion, homeCompanionParams);
 
         homeActionButton = new ImageButton(this);
         homeActionButton.setImageResource(R.drawable.ic_waveform);
@@ -492,10 +540,6 @@ public final class MainActivity extends Activity {
         drawerHeader.addView(close, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
         panel.addView(drawerHeader);
 
-        TextView status = text(settings.snapshot().modeLabel() + "  •  online", 12, 0xFF9EA3AC, false);
-        status.setPadding(Ui.dp(this, 9), 0, 0, Ui.dp(this, 12));
-        panel.addView(status);
-
         TextView home = drawerAction("Главная", R.drawable.ic_home);
         home.setOnClickListener(v -> closeDrawer(this::showHome));
         panel.addView(home, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 50)));
@@ -667,6 +711,7 @@ public final class MainActivity extends Activity {
         host.removeAllViews();
         homeComposer = null;
         homeActionButton = null;
+        typingCompanion = null;
 
         DebugLog.log("NAV", "Open CHAT screen id=" + chatId + ", titleChars=" + chat.title.length());
         LinearLayout root = vertical();
@@ -689,6 +734,9 @@ public final class MainActivity extends Activity {
             messages.add(ChatMessage.pending(chatId, requestDeepReasoning));
         }
         messageAdapter.setMessages(messages);
+        if (requestRunning && requestChatId == chatId && requestProgress != null) {
+            messageAdapter.setGenerationProgress(requestProgress);
+        }
         messageList.setAdapter(messageAdapter);
         content.addView(messageList, match());
 
@@ -803,8 +851,13 @@ public final class MainActivity extends Activity {
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         composer.setImeOptions(EditorInfo.IME_ACTION_SEND);
         composer.addTextChangedListener(new SimpleTextWatcher() {
-            @Override public void afterTextChanged(Editable editable) { updateSendState(); }
+            @Override public void afterTextChanged(Editable editable) {
+                updateSendState();
+                updateTypingCompanion(editable, composer.hasFocus());
+            }
         });
+        composer.setOnFocusChangeListener((view, focused) ->
+                updateTypingCompanion(composer.getText(), focused));
         composer.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEND) {
                 submitComposer();
@@ -813,6 +866,12 @@ public final class MainActivity extends Activity {
             return false;
         });
         box.addView(composer, new LinearLayout.LayoutParams(0, wrap(), 1f));
+
+        typingCompanion = new TypingCompanionView(this);
+        LinearLayout.LayoutParams companionParams = new LinearLayout.LayoutParams(
+                Ui.dp(this, 38), Ui.dp(this, 44));
+        companionParams.rightMargin = Ui.dp(this, 3);
+        box.addView(typingCompanion, companionParams);
 
         sendButton = new ImageButton(this);
         sendButton.setImageResource(R.drawable.ic_waveform);
@@ -869,6 +928,7 @@ public final class MainActivity extends Activity {
         requestRunning = true;
         requestChatId = chatId;
         requestDeepReasoning = settings.isReasoningEnabled() && settings.isAiEnabled();
+        requestProgress = null;
         lastQuestion = question;
         lastAttachment = attachment;
         if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
@@ -883,6 +943,15 @@ public final class MainActivity extends Activity {
         AppSettings.Snapshot snapshot = settings.snapshot();
         assistant.ask(question, history, snapshot, attachment, new AssistantEngine.Callback() {
             @Override
+            public void onProgress(GenerationProgress progress) {
+                if (!requestRunning || requestChatId != chatId) return;
+                requestProgress = progress;
+                if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
+                    messageAdapter.setGenerationProgress(progress);
+                }
+            }
+
+            @Override
             public void onSuccess(AssistantReply reply) {
                 DebugLog.log("CHAT", "Assistant callback success chat=" + chatId +
                         ", chars=" + reply.text.length() + ", sources=" + reply.sources.size());
@@ -893,6 +962,8 @@ public final class MainActivity extends Activity {
                 requestRunning = false;
                 requestDeepReasoning = false;
                 requestChatId = -1;
+                requestProgress = null;
+                if (messageAdapter != null) messageAdapter.clearGenerationProgress();
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
                     messageAdapter.setMessages(database.getMessages(chatId));
                     scrollMessagesToEnd();
@@ -908,15 +979,17 @@ public final class MainActivity extends Activity {
                 requestRunning = false;
                 requestDeepReasoning = false;
                 requestChatId = -1;
+                requestProgress = null;
+                if (messageAdapter != null) messageAdapter.clearGenerationProgress();
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
                     messageAdapter.replaceTransient(ChatMessage.error(chatId, error));
                     scrollMessagesToEnd();
                     updateSendState();
                 } else if (screen == Screen.HOME) {
                     refreshChats();
-                    Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
+                    Toast.makeText(KvsEntry.this, error, Toast.LENGTH_LONG).show();
                 } else {
-                    Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
+                    Toast.makeText(KvsEntry.this, error, Toast.LENGTH_LONG).show();
                 }
             }
         });
@@ -925,6 +998,11 @@ public final class MainActivity extends Activity {
     private void retryLastQuestion() {
         if (requestRunning || currentChatId < 0 || lastQuestion.isEmpty()) return;
         askAssistant(currentChatId, lastQuestion, false, lastAttachment);
+    }
+
+    private void updateTypingCompanion(CharSequence value, boolean focused) {
+        if (typingCompanion == null) return;
+        typingCompanion.setTyping(focused && value != null && value.toString().trim().length() > 0);
     }
 
     private void updateSendState() {
@@ -1061,12 +1139,12 @@ public final class MainActivity extends Activity {
         }
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add("Выбрать фотографию");
-        menu.getMenu().add("Выбрать файл");
+        menu.getMenu().add("Выбрать файл (до 66 МБ)");
         if (allowNewChat && screen == Screen.CHAT) menu.getMenu().add("Новый чат");
         menu.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
             if (title.equals("Выбрать фотографию")) openDocumentPicker(true);
-            else if (title.equals("Выбрать файл")) openDocumentPicker(false);
+            else if (title.equals("Выбрать файл (до 66 МБ)")) openDocumentPicker(false);
             else if (title.equals("Новый чат")) createChat();
             return true;
         });
@@ -1121,7 +1199,7 @@ public final class MainActivity extends Activity {
                     refreshAttachmentPreview();
                     String message = error.getMessage() == null
                             ? "Не удалось прочитать файл" : error.getMessage();
-                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                    Toast.makeText(KvsEntry.this, message, Toast.LENGTH_LONG).show();
                 });
             }
         });
@@ -1147,6 +1225,7 @@ public final class MainActivity extends Activity {
         homeActionButton = null;
         composer = null;
         sendButton = null;
+        typingCompanion = null;
         attachmentPreview = null;
         DebugLog.log("NAV", "Open SETTINGS screen; return=" + settingsReturnScreen);
         LinearLayout root = vertical();
@@ -1321,28 +1400,6 @@ public final class MainActivity extends Activity {
         tipParams.bottomMargin = Ui.dp(this, 18);
         content.addView(localTip, tipParams);
 
-        content.addView(sectionLabel("ЧТО ПРОИСХОДИТ ВНУТРИ"));
-        LinearLayout debugCard = settingsCard();
-        Switch debugSwitch = new Switch(this);
-        debugSwitch.setText("Показывать живой журнал");
-        debugSwitch.setTextColor(Ui.TEXT);
-        debugSwitch.setTextSize(16);
-        debugSwitch.setChecked(settings.isDebugEnabled());
-        debugCard.addView(debugSwitch, matchWidthWrap());
-        TextView debugHint = text("Внизу появится технический журнал: какие функции сработали, сколько занял " +
-                "запрос и где возникла ошибка. Секретные ключи и содержимое файлов туда не попадают.",
-                13, Ui.MUTED, false);
-        debugHint.setLineSpacing(0, 1.08f);
-        LinearLayout.LayoutParams debugHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
-        debugHintParams.topMargin = Ui.dp(this, 7);
-        debugCard.addView(debugHint, debugHintParams);
-        Button clearDebug = inlineButton("Очистить debug-консоль");
-        clearDebug.setOnClickListener(v -> DebugLog.clear());
-        LinearLayout.LayoutParams clearDebugParams = new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 42));
-        clearDebugParams.topMargin = Ui.dp(this, 10);
-        debugCard.addView(clearDebug, clearDebugParams);
-        content.addView(debugCard, cardParams());
-
         Button save = primaryButton("Готово, сохранить");
         save.setOnClickListener(v -> {
             String endpointValue = endpoint.getText().toString().trim();
@@ -1358,11 +1415,10 @@ public final class MainActivity extends Activity {
                 return;
             }
             try {
-                settings.save(aiSwitch.isChecked(), webSwitch.isChecked(), debugSwitch.isChecked(),
+                settings.save(aiSwitch.isChecked(), webSwitch.isChecked(),
                         reasoningSwitch.isChecked(), endpointValue, modelValue, apiKey.getText().toString());
-                DebugLog.setEnabled(debugSwitch.isChecked());
                 DebugLog.log("SETTINGS", "Saved: ai=" + aiSwitch.isChecked() +
-                        ", web=" + webSwitch.isChecked() + ", debug=" + debugSwitch.isChecked() +
+                        ", web=" + webSwitch.isChecked() +
                         ", reasoning=" + reasoningSwitch.isChecked() +
                         ", model=" + modelValue + ", endpoint=" + endpointValue +
                         ", newApiKeyProvided=" + !apiKey.getText().toString().isEmpty());
@@ -1401,7 +1457,7 @@ public final class MainActivity extends Activity {
         securityCard.addView(securityHint, securityHintParams);
         content.addView(securityCard, cardParams());
 
-        TextView version = text("kvsai 1.3.1  •  Android 8.0+", 12, Ui.DIM, false);
+        TextView version = text("kvsai 1.4.0  •  Android 8.0+\ncreated by kvsai org", 12, Ui.DIM, false);
         version.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         versionParams.topMargin = Ui.dp(this, 8);
@@ -1521,10 +1577,6 @@ public final class MainActivity extends Activity {
         stage.addView(new AmbientBackgroundView(this), match());
         stage.addView(screenView, match());
         shell.addView(stage, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
-        if (settings.isDebugEnabled()) {
-            DebugConsoleView console = new DebugConsoleView(this);
-            shell.addView(console, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 180)));
-        }
         host.addView(shell, match());
     }
 

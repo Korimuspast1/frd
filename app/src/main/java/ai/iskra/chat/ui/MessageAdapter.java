@@ -21,6 +21,7 @@ import android.widget.Toast;
 
 import ai.iskra.chat.R;
 import ai.iskra.chat.model.ChatMessage;
+import ai.iskra.chat.model.GenerationProgress;
 import ai.iskra.chat.model.SearchSource;
 import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.MarkdownParser;
@@ -42,6 +43,8 @@ public final class MessageAdapter extends BaseAdapter {
     private final Listener listener;
     private final Set<String> animatedRows = new HashSet<>();
     private List<ChatMessage> messages = new ArrayList<>();
+    private GenerationProgress generationProgress;
+    private ThinkingIndicatorView pendingIndicator;
 
     public MessageAdapter(Context context, Listener listener) {
         this.context = context;
@@ -56,6 +59,16 @@ public final class MessageAdapter extends BaseAdapter {
     public void add(ChatMessage message) {
         messages.add(message);
         notifyDataSetChanged();
+    }
+
+    public void setGenerationProgress(GenerationProgress progress) {
+        generationProgress = progress;
+        if (pendingIndicator != null) pendingIndicator.setProgress(progress);
+    }
+
+    public void clearGenerationProgress() {
+        generationProgress = null;
+        pendingIndicator = null;
     }
 
     public void replaceTransient(ChatMessage message) {
@@ -131,8 +144,10 @@ public final class MessageAdapter extends BaseAdapter {
     private void addPending(LinearLayout bubble, String value) {
         boolean deep = value != null && value.toLowerCase(java.util.Locale.US).contains("рассуж");
         ThinkingIndicatorView indicator = new ThinkingIndicatorView(context, deep);
+        pendingIndicator = indicator;
+        if (generationProgress != null) indicator.setProgress(generationProgress);
         bubble.addView(indicator, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 58)));
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(context, 68)));
         if (deep) {
             TextView note = Ui.text(context,
                     "Покажу вывод и ключевые основания — без скрытого внутреннего черновика.",
