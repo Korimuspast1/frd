@@ -44,13 +44,17 @@ jobs:
             adb logcat -c
             adb shell am start -W -n app.kvsai.chat/ai.iskra.chat.KvsEntry
             sleep 5
-            PID="$(adb shell pidof app.kvsai.chat | tr -d '\r')"
-            if [[ -z "$PID" ]]; then
-              adb logcat -d '*:V'
+            PID="$(adb shell pidof app.kvsai.chat 2>/dev/null | tr -d '\r' || true)"
+            adb logcat -d '*:V' > /tmp/kvsai-logcat.txt
+            if [ -z "$PID" ]; then
+              DETAILS="$(grep -A50 -B8 -E 'FATAL EXCEPTION|Process: app\.kvsai\.chat|SecurityException' /tmp/kvsai-logcat.txt \
+                | tail -100 | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-6000)"
+              echo "::error title=kvsai startup crash::$DETAILS"
+              cat /tmp/kvsai-logcat.txt
               echo 'kvsai process is not alive after startup' >&2
               exit 1
             fi
-            if adb logcat -d '*:E' | grep -A40 -B5 -E 'FATAL EXCEPTION|Process: app\.kvsai\.chat'; then
+            if grep -A40 -B5 -E 'FATAL EXCEPTION.*|Process: app\.kvsai\.chat' /tmp/kvsai-logcat.txt; then
               echo 'Fatal startup exception detected' >&2
               exit 1
             fi
