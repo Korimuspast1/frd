@@ -40,7 +40,8 @@ public final class IntegrityGuard {
         } catch (SecurityException error) {
             throw error;
         } catch (Throwable error) {
-            throw new SecurityException("kvsai integrity verification failed", error);
+            throw new SecurityException("Проверка целостности не выполнена: "
+                    + error.getClass().getSimpleName(), error);
         }
     }
 
@@ -95,6 +96,6 @@ public final class IntegrityGuard {
 
     private static void fail(String reason) {
         DebugLog.log("SECURITY", "Integrity rejection: " + reason);
-        throw new SecurityException("kvsai integrity verification failed");
+        throw new SecurityException("Проверка целостности не пройдена: " + reason);
     }
 }

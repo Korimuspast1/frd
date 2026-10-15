@@ -56,7 +56,8 @@ public final class TypingCompanionView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        float density = getResources().getDisplayMetrics().density;
+        if (getWidth() <= 0 || getHeight() <= 0) return;
+        float density = Math.max(0.5f, getResources().getDisplayMetrics().density);
         float cx = getWidth() * 0.5f;
         float idleWave = (float) Math.sin(phase * Math.PI * 2.0);
         float bob = typing ? idleWave * 1.25f * density : idleWave * 0.35f * density;

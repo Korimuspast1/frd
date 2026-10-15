@@ -53,7 +53,6 @@ public final class AttachmentReader {
     public AttachmentReader(Context context) {
         this.context = context.getApplicationContext();
         this.resolver = this.context.getContentResolver();
-        removeStaleCacheFiles();
     }
 
     public AttachmentData read(Uri uri) throws Exception {
@@ -225,17 +224,25 @@ public final class AttachmentReader {
         return new Metadata(name, mime, size);
     }
 
-    private void removeStaleCacheFiles() {
-        File[] files = context.getCacheDir().listFiles((directory, name) ->
-                name != null && name.startsWith(CACHE_PREFIX));
-        if (files == null) return;
-        for (File file : files) {
-            if (file != null && file.isFile()) file.delete();
+    private void removeStaleCacheFiles(File cacheDirectory) {
+        if (cacheDirectory == null) return;
+        try {
+            File[] files = cacheDirectory.listFiles((directory, name) ->
+                    name != null && name.startsWith(CACHE_PREFIX));
+            if (files == null) return;
+            for (File file : files) {
+                if (file != null && file.isFile()) file.delete();
+            }
+        } catch (RuntimeException ignored) {
+            // Cache housekeeping is optional and must not block a user-selected attachment.
         }
     }
 
     private File copyToBoundedCache(Uri uri) throws IOException {
-        File outputFile = File.createTempFile(CACHE_PREFIX, ".bin", context.getCacheDir());
+        File cacheDirectory = context.getCacheDir();
+        if (cacheDirectory == null) throw new IOException("Временное хранилище недоступно");
+        removeStaleCacheFiles(cacheDirectory);
+        File outputFile = File.createTempFile(CACHE_PREFIX, ".bin", cacheDirectory);
         boolean complete = false;
         try (InputStream raw = resolver.openInputStream(uri)) {
             if (raw == null) throw new IOException("Не удалось открыть файл");

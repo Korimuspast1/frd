@@ -19,7 +19,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
-import android.view.WindowInsetsAnimation;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
@@ -113,21 +112,35 @@ public final class KvsEntry extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        IntegrityGuard.verifyOrThrow(this);
-        configureWindow();
-        settings = new AppSettings(this);
-        DebugLog.log("APP", "kvsai 1.4.0 starting; Android=" + Build.VERSION.RELEASE +
-                ", sdk=" + Build.VERSION.SDK_INT + ", device=" + Build.MANUFACTURER + " " + Build.MODEL);
-        database = new ChatDatabase(this);
-        assistant = new AssistantEngine(this);
-        attachmentReader = new AttachmentReader(this);
-        if (settings.isVoiceEnabled()) initializeSpeech();
+        try {
+            IntegrityGuard.verifyOrThrow(this);
+        } catch (SecurityException error) {
+            showStartupBlock("Системная ошибка безопасности",
+                    error.getMessage() == null ? "Проверка целостности не пройдена" : error.getMessage(),
+                    true);
+            return;
+        }
 
-        host = new FrameLayout(this);
-        host.setBackgroundColor(Ui.BG);
-        setContentView(host);
-        applyResponsiveInsets();
-        showHome();
+        try {
+            configureWindow();
+            settings = new AppSettings(this);
+            DebugLog.log("APP", "kvsai 1.4.1 starting; Android=" + Build.VERSION.RELEASE +
+                    ", sdk=" + Build.VERSION.SDK_INT + ", device=" +
+                    Build.MANUFACTURER + " " + Build.MODEL);
+            database = new ChatDatabase(this);
+            assistant = new AssistantEngine(this);
+            attachmentReader = new AttachmentReader(this);
+            if (settings.isVoiceEnabled()) initializeSpeech();
+
+            host = new FrameLayout(this);
+            host.setBackgroundColor(Ui.BG);
+            setContentView(host);
+            applyResponsiveInsets();
+            showHome();
+        } catch (Throwable error) {
+            showStartupBlock("Не удалось запустить kvsai",
+                    "Код запуска: " + error.getClass().getSimpleName(), false);
+        }
     }
 
     private void configureWindow() {
@@ -135,53 +148,99 @@ public final class KvsEntry extends Activity {
         window.setStatusBarColor(Ui.BG);
         window.setNavigationBarColor(Ui.BG);
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+ exposes animated IME insets; the root consumes their live height below.
-            window.setDecorFitsSystemWindows(false);
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.setStatusBarContrastEnforced(false);
             window.setNavigationBarContrastEnforced(false);
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && window.getInsetsController() != null) {
-            window.getInsetsController().setSystemBarsAppearance(0,
-                    android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                            | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
-        } else {
-            window.getDecorView().setSystemUiVisibility(0);
-        }
+        // Let the theme choose light system-bar icons. Avoid forcing OEM-specific inset-controller
+        // state during Activity creation; Android 15/16 still dispatches the insets handled below.
+        window.getDecorView().setSystemUiVisibility(0);
     }
 
     private void applyResponsiveInsets() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || host == null) {
             // adjustResize remains the reliable path on Android 8–10.
             return;
         }
         host.setOnApplyWindowInsetsListener((view, insets) -> {
-            applyInsetPadding(view, insets);
-            return insets;
-        });
-        host.setWindowInsetsAnimationCallback(new WindowInsetsAnimation.Callback(
-                WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
-            @Override
-            public WindowInsets onProgress(WindowInsets insets,
-                                           List<WindowInsetsAnimation> runningAnimations) {
-                applyInsetPadding(host, insets);
-                return insets;
+            try {
+                applyInsetPadding(view, insets);
+            } catch (RuntimeException ignored) {
+                // A vendor inset implementation must never be able to terminate the app.
             }
+            return insets;
         });
         host.requestApplyInsets();
     }
 
     private void applyInsetPadding(View view, WindowInsets insets) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || insets == null) return;
         android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
         android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
-        // IME bottom is animated by Android. Padding the one stable root simultaneously shrinks
-        // the message list and lifts the composer instead of overlaying either one.
+        // IME bottom follows the system's keyboard animation. Padding the stable root shrinks the
+        // message list and lifts the composer instead of allowing the keyboard to cover either one.
         int bottom = Math.max(bars.bottom, ime.bottom);
-        if (view.getPaddingTop() != bars.top || view.getPaddingBottom() != bottom) {
+        if (view.getPaddingLeft() != bars.left || view.getPaddingTop() != bars.top
+                || view.getPaddingRight() != bars.right || view.getPaddingBottom() != bottom) {
             view.setPadding(bars.left, bars.top, bars.right, bottom);
+        }
+    }
+
+    private void showStartupBlock(String title, String detail, boolean securityFailure) {
+        try {
+            LinearLayout failure = new LinearLayout(this);
+            failure.setOrientation(LinearLayout.VERTICAL);
+            failure.setGravity(Gravity.CENTER);
+            failure.setPadding(Ui.dp(this, 30), Ui.dp(this, 40),
+                    Ui.dp(this, 30), Ui.dp(this, 40));
+            failure.setBackgroundColor(Ui.BG);
+
+            TextView icon = new TextView(this);
+            icon.setText(securityFailure ? "!" : "✦");
+            icon.setTextColor(securityFailure ? Ui.DANGER : Ui.CYAN);
+            icon.setTextSize(30);
+            icon.setGravity(Gravity.CENTER);
+            failure.addView(icon, new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)));
+
+            TextView heading = new TextView(this);
+            heading.setText(title);
+            heading.setTextColor(Ui.TEXT);
+            heading.setTextSize(20);
+            heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            heading.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+            headingParams.topMargin = Ui.dp(this, 14);
+            failure.addView(heading, headingParams);
+
+            TextView explanation = new TextView(this);
+            explanation.setText(detail);
+            explanation.setTextColor(Ui.MUTED);
+            explanation.setTextSize(14);
+            explanation.setGravity(Gravity.CENTER);
+            explanation.setLineSpacing(0, 1.12f);
+            LinearLayout.LayoutParams explanationParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+            explanationParams.topMargin = Ui.dp(this, 10);
+            failure.addView(explanation, explanationParams);
+
+            Button action = new Button(this);
+            action.setText(securityFailure ? "Закрыть" : "Повторить запуск");
+            action.setAllCaps(false);
+            action.setTextColor(Ui.TEXT);
+            action.setOnClickListener(view -> {
+                if (securityFailure) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) finishAndRemoveTask();
+                    else finish();
+                } else {
+                    recreate();
+                }
+            });
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                    matchValue(), Ui.dp(this, 52));
+            actionParams.topMargin = Ui.dp(this, 24);
+            failure.addView(action, actionParams);
+            setContentView(failure);
+        } catch (Throwable ignored) {
+            finish();
         }
     }
 
@@ -1457,7 +1516,7 @@ public final class KvsEntry extends Activity {
         securityCard.addView(securityHint, securityHintParams);
         content.addView(securityCard, cardParams());
 
-        TextView version = text("kvsai 1.4.0  •  Android 8.0+\ncreated by kvsai org", 12, Ui.DIM, false);
+        TextView version = text("kvsai 1.4.1  •  Android 8.0+\ncreated by kvsai org", 12, Ui.DIM, false);
         version.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         versionParams.topMargin = Ui.dp(this, 8);
