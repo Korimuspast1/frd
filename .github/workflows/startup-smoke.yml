@@ -39,13 +39,26 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            set -eu
-            adb install -r out/kvsai-release.apk
-            adb logcat -c
-            adb shell am start -W -n app.kvsai.chat/ai.iskra.chat.KvsEntry
+            INSTALL_OUTPUT="$(adb install -r out/kvsai-release.apk 2>&1)"
+            INSTALL_STATUS=$?
+            printf '%s\n' "$INSTALL_OUTPUT"
+            if [ "$INSTALL_STATUS" -ne 0 ]; then
+              SAFE="$(printf '%s' "$INSTALL_OUTPUT" | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-6000)"
+              echo "::error title=APK installation failed::$SAFE"
+              exit "$INSTALL_STATUS"
+            fi
+            adb logcat -c || true
+            START_OUTPUT="$(adb shell am start -W -n app.kvsai.chat/ai.iskra.chat.KvsEntry 2>&1)"
+            START_STATUS=$?
+            printf '%s\n' "$START_OUTPUT"
+            if [ "$START_STATUS" -ne 0 ]; then
+              SAFE="$(printf '%s' "$START_OUTPUT" | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-6000)"
+              echo "::error title=Launcher command failed::$SAFE"
+              exit "$START_STATUS"
+            fi
             sleep 5
             PID="$(adb shell pidof app.kvsai.chat 2>/dev/null | tr -d '\r' || true)"
-            adb logcat -d '*:V' > /tmp/kvsai-logcat.txt
+            adb logcat -d '*:V' > /tmp/kvsai-logcat.txt 2>&1 || true
             if [ -z "$PID" ]; then
               DETAILS="$(grep -A50 -B8 -E 'FATAL EXCEPTION|Process: app\.kvsai\.chat|SecurityException' /tmp/kvsai-logcat.txt \
                 | tail -100 | tr '\n' ' ' | sed 's/%/%25/g' | cut -c1-6000)"
