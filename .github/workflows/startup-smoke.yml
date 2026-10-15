@@ -2,6 +2,10 @@ name: kvsai startup smoke test
 
 on:
   workflow_dispatch:
+  push:
+    branches: ['arena/**']
+    paths:
+      - '.github/workflows/startup-smoke.yml'
 
 permissions:
   contents: read
