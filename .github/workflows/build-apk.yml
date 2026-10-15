@@ -82,14 +82,22 @@ jobs:
           APK="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -1)"
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee /tmp/apksigner.txt
-          ACTUAL="$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' /tmp/apksigner.txt | head -1 | tr '[:upper:]' '[:lower:]')"
+          CERT_LINE="$(grep -i -m1 'certificate SHA-256 digest' /tmp/apksigner.txt)"
+          ACTUAL="$(printf '%s' "$CERT_LINE" | awk -F': ' '{print $NF}' | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')"
           EXPECTED="a40da80a59d170caa950cf15c18c454d47a39b26989d8b640ecd745ba71bf5dc"
-          test "$ACTUAL" = "$EXPECTED"
+          echo "Signer SHA-256: $ACTUAL"
+          if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+            echo "Unexpected release signing certificate" >&2
+            exit 1
+          fi
           unzip -t "$APK"
           unzip -Z1 "$APK" > /tmp/apk-entries.txt
-          grep -qx 'AndroidManifest.xml' /tmp/apk-entries.txt
-          grep -qx 'classes.dex' /tmp/apk-entries.txt
-          grep -qx 'resources.arsc' /tmp/apk-entries.txt
+          for REQUIRED in AndroidManifest.xml classes.dex resources.arsc; do
+            if ! grep -Fxq "$REQUIRED" /tmp/apk-entries.txt; then
+              echo "Missing required APK entry: $REQUIRED" >&2
+              exit 1
+            fi
+          done
 
       - name: Collect APKs and checksums
         shell: bash
