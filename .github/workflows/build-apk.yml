@@ -98,6 +98,17 @@ jobs:
               exit 1
             fi
           done
+          # Mirror IntegrityGuard's structural rules so a release cannot pass CI and then
+          # reject itself on a device (including legitimately tiny R8-minified APKs).
+          python3 - "$APK" <<'PY'
+          import sys, zipfile
+          limits = {'AndroidManifest.xml': 256, 'classes.dex': 4096, 'resources.arsc': 1024}
+          with zipfile.ZipFile(sys.argv[1]) as apk:
+              for name, minimum in limits.items():
+                  entry = apk.getinfo(name)
+                  assert entry.file_size >= minimum and entry.CRC != 0, (name, entry.file_size, entry.CRC)
+          print('Runtime integrity preflight passed')
+          PY
 
       - name: Collect APKs and checksums
         shell: bash

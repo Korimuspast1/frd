@@ -70,7 +70,9 @@ public final class IntegrityGuard {
     private static void verifyApkStructure(String sourcePath) throws Exception {
         if (sourcePath == null) fail("missing APK path");
         File apk = new File(sourcePath);
-        if (!apk.isFile() || !apk.canRead() || apk.length() < 100_000L) fail("APK container");
+        // Do not use an arbitrary minimum APK size here: R8/resource shrinking can legitimately
+        // produce a very small release. Required ZIP entries below are the structural check.
+        if (!apk.isFile() || !apk.canRead()) fail("APK container");
         try (ZipFile zip = new ZipFile(apk)) {
             requireEntry(zip, "AndroidManifest.xml", 256L);
             requireEntry(zip, "classes.dex", 4_096L);

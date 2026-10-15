@@ -113,7 +113,7 @@ public final class MainActivity extends Activity {
         configureWindow();
         settings = new AppSettings(this);
         DebugLog.initialize(settings.isDebugEnabled());
-        DebugLog.log("APP", "kvsai 1.3.0 starting; Android=" + Build.VERSION.RELEASE +
+        DebugLog.log("APP", "kvsai 1.3.1 starting; Android=" + Build.VERSION.RELEASE +
                 ", sdk=" + Build.VERSION.SDK_INT + ", device=" + Build.MANUFACTURER + " " + Build.MODEL);
         database = new ChatDatabase(this);
         assistant = new AssistantEngine(this);
@@ -1401,7 +1401,7 @@ public final class MainActivity extends Activity {
         securityCard.addView(securityHint, securityHintParams);
         content.addView(securityCard, cardParams());
 
-        TextView version = text("kvsai 1.3.0  •  Android 8.0+", 12, Ui.DIM, false);
+        TextView version = text("kvsai 1.3.1  •  Android 8.0+", 12, Ui.DIM, false);
         version.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         versionParams.topMargin = Ui.dp(this, 8);

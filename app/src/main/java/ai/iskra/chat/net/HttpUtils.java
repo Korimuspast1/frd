@@ -21,7 +21,7 @@ final class HttpUtils {
         connection.setConnectTimeout(12_000);
         connection.setReadTimeout(20_000);
         connection.setUseCaches(false);
-        connection.setRequestProperty("User-Agent", "kvsai/1.3 (Android; multimodal assistant)");
+        connection.setRequestProperty("User-Agent", "kvsai/1.3.1 (Android; multimodal assistant)");
         connection.setRequestProperty("Accept-Language", "ru,en;q=0.7");
         return connection;
     }
