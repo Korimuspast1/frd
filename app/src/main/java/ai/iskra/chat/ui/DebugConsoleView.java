@@ -27,20 +27,22 @@ public final class DebugConsoleView extends LinearLayout implements DebugLog.Lis
     public DebugConsoleView(Context context) {
         super(context);
         setOrientation(VERTICAL);
-        setBackground(Ui.roundedStroke(0xFF05080D, 0xFF244138, 0, context));
+        setPadding(Ui.dp(context, 8), Ui.dp(context, 7), Ui.dp(context, 8), Ui.dp(context, 7));
+        setBackground(Ui.glass(context, 20));
+        setElevation(Ui.dp(context, 8));
 
         LinearLayout header = new LinearLayout(context);
         header.setOrientation(HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(Ui.dp(context, 10), 0, Ui.dp(context, 5), 0);
-        header.setBackgroundColor(0xFF09120F);
+        header.setBackground(Ui.glassBlue(context, 13));
 
-        TextView title = Ui.text(context, "●  DEBUG CONSOLE • LIVE", 10, 0xFF58E6AE);
+        TextView title = Ui.text(context, "●  DEBUG CONSOLE • LIVE", 10, 0xFF73B7FF);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         header.addView(title, new LayoutParams(0, Ui.dp(context, 34), 1f));
 
         counter = consoleButton("0");
-        counter.setTextColor(0xFF86A69A);
+        counter.setTextColor(0xFFA5AAB4);
         header.addView(counter, new LayoutParams(Ui.dp(context, 42), Ui.dp(context, 34)));
 
         TextView copy = consoleButton("COPY");
@@ -58,8 +60,8 @@ public final class DebugConsoleView extends LinearLayout implements DebugLog.Lis
 
         scroll = new ScrollView(context);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xFF05080D);
-        output = Ui.text(context, "", 9.5f, 0xFFB2F5D8);
+        scroll.setBackgroundColor(Color.TRANSPARENT);
+        output = Ui.text(context, "", 9.5f, 0xFFC5DDF8);
         output.setTypeface(Typeface.MONOSPACE);
         output.setTextIsSelectable(true);
         output.setLineSpacing(0, 1.05f);
@@ -71,10 +73,10 @@ public final class DebugConsoleView extends LinearLayout implements DebugLog.Lis
     }
 
     private TextView consoleButton(String label) {
-        TextView button = Ui.text(getContext(), label, 9, 0xFF58E6AE);
+        TextView button = Ui.text(getContext(), label, 9, 0xFF83BFFF);
         button.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         button.setGravity(Gravity.CENTER);
-        button.setBackground(Ui.ripple(Ui.rounded(Color.TRANSPARENT, 5, getContext()), 0x3358E6AE));
+        button.setBackground(Ui.ripple(Ui.rounded(Color.TRANSPARENT, 7, getContext()), 0x334A9CFF));
         return button;
     }
 
@@ -84,7 +86,7 @@ public final class DebugConsoleView extends LinearLayout implements DebugLog.Lis
         collapse.setText(collapsed ? "▲" : "▼");
         ViewGroup.LayoutParams params = getLayoutParams();
         if (params != null) {
-            params.height = Ui.dp(getContext(), collapsed ? 34 : 180);
+            params.height = Ui.dp(getContext(), collapsed ? 48 : 180);
             setLayoutParams(params);
         }
         DebugLog.log("UI", collapsed ? "Debug console collapsed" : "Debug console expanded");

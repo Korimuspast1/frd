@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.HorizontalScrollView;
@@ -30,7 +31,9 @@ import ai.iskra.chat.util.TextUtilsEx;
 import ai.iskra.chat.util.Ui;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class MessageAdapter extends BaseAdapter {
     public interface Listener {
@@ -39,6 +42,7 @@ public final class MessageAdapter extends BaseAdapter {
 
     private final Context context;
     private final Listener listener;
+    private final Set<String> animatedRows = new HashSet<>();
     private List<ChatMessage> messages = new ArrayList<>();
 
     public MessageAdapter(Context context, Listener listener) {
@@ -89,11 +93,14 @@ public final class MessageAdapter extends BaseAdapter {
         bubble.setOrientation(LinearLayout.VERTICAL);
         bubble.setPadding(Ui.dp(context, 14), Ui.dp(context, 12),
                 Ui.dp(context, 14), Ui.dp(context, 12));
-        int bubbleColor = message.isUser() ? Ui.VIOLET_DARK
-                : message.state == ChatMessage.State.ERROR ? 0xFF2B1B25 : Ui.CARD;
-        int borderColor = message.isUser() ? Ui.VIOLET_DARK
-                : message.state == ChatMessage.State.ERROR ? 0xFF65303F : 0xFF222E40;
-        bubble.setBackground(Ui.roundedStroke(bubbleColor, borderColor, 18, context));
+        if (message.state == ChatMessage.State.ERROR) {
+            bubble.setBackground(Ui.roundedStroke(0xAA321C25, 0xAA874254, 20, context));
+        } else if (message.isUser()) {
+            bubble.setBackground(Ui.glassBlue(context, 20));
+        } else {
+            bubble.setBackground(Ui.glassSoft(context, 20));
+        }
+        bubble.setElevation(Ui.dp(context, 2));
         bubble.setMinimumWidth(Ui.dp(context, 64));
 
         if (message.state == ChatMessage.State.PENDING) {
@@ -109,6 +116,16 @@ public final class MessageAdapter extends BaseAdapter {
         if (message.state == ChatMessage.State.READY && !message.isUser()) {
             if (!message.sources.isEmpty()) row.addView(sourceList(message.sources, availableWidth));
             row.addView(actionRow(message));
+        }
+        String animationKey = message.id + ":" + message.state + ":" + position;
+        if (animatedRows.add(animationKey)) {
+            row.setAlpha(0f);
+            row.setTranslationY(Ui.dp(context, 18));
+            row.setScaleX(0.985f);
+            row.setScaleY(0.985f);
+            row.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+                    .setDuration(360).setStartDelay(Math.min(position * 25L, 180L))
+                    .setInterpolator(new DecelerateInterpolator()).start();
         }
         return row;
     }

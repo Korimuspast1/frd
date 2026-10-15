@@ -9,6 +9,8 @@ import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.speech.RecognizerIntent;
+import android.speech.tts.TextToSpeech;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.text.Editable;
@@ -18,6 +20,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.content.Context;
@@ -40,9 +43,12 @@ import ai.iskra.chat.data.ChatDatabase;
 import ai.iskra.chat.model.AssistantReply;
 import ai.iskra.chat.model.Chat;
 import ai.iskra.chat.model.ChatMessage;
+import ai.iskra.chat.ui.AmbientBackgroundView;
+import ai.iskra.chat.ui.AssistantOrbView;
 import ai.iskra.chat.ui.ChatListAdapter;
 import ai.iskra.chat.ui.DebugConsoleView;
 import ai.iskra.chat.ui.MessageAdapter;
+import ai.iskra.chat.ui.ShatterOverlay;
 import ai.iskra.chat.util.DebugLog;
 import ai.iskra.chat.util.TextUtilsEx;
 import ai.iskra.chat.util.Ui;
@@ -50,8 +56,10 @@ import ai.iskra.chat.util.Ui;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public final class MainActivity extends Activity {
+    private static final int VOICE_REQUEST_CODE = 4281;
     private enum Screen { HOME, CHAT, SETTINGS }
 
     private ChatDatabase database;
@@ -66,6 +74,10 @@ public final class MainActivity extends Activity {
     private ChatListAdapter chatListAdapter;
     private EditText chatSearch;
     private TextView chatCount;
+    private FrameLayout drawerOverlay;
+    private EditText homeComposer;
+    private ImageButton homeActionButton;
+    private ImageButton currentVoiceButton;
 
     private MessageAdapter messageAdapter;
     private ListView messageList;
@@ -77,6 +89,8 @@ public final class MainActivity extends Activity {
     private boolean requestRunning;
     private long requestChatId = -1;
     private String lastQuestion = "";
+    private TextToSpeech textToSpeech;
+    private boolean textToSpeechReady;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,10 +98,11 @@ public final class MainActivity extends Activity {
         configureWindow();
         settings = new AppSettings(this);
         DebugLog.initialize(settings.isDebugEnabled());
-        DebugLog.log("APP", "kvsai 1.1.0 starting; Android=" + Build.VERSION.RELEASE +
+        DebugLog.log("APP", "kvsai 1.2.0 starting; Android=" + Build.VERSION.RELEASE +
                 ", sdk=" + Build.VERSION.SDK_INT + ", device=" + Build.MANUFACTURER + " " + Build.MODEL);
         database = new ChatDatabase(this);
         assistant = new AssistantEngine(this);
+        if (settings.isVoiceEnabled()) initializeSpeech();
 
         host = new FrameLayout(this);
         host.setBackgroundColor(Ui.BG);
@@ -123,21 +138,26 @@ public final class MainActivity extends Activity {
         super.onResume();
         DebugLog.log("LIFECYCLE", "onResume screen=" + screen);
         if (screen == Screen.HOME && chatListAdapter != null) refreshChats();
-        if (screen == Screen.CHAT && currentMode != null) {
-            currentMode.setText(settings.snapshot().modeLabel());
-        }
     }
 
     @Override
     protected void onDestroy() {
         DebugLog.log("LIFECYCLE", "onDestroy; finishing=" + isFinishing());
         assistant.shutdown();
+        if (textToSpeech != null) {
+            textToSpeech.stop();
+            textToSpeech.shutdown();
+        }
         database.close();
         super.onDestroy();
     }
 
     @Override
     public void onBackPressed() {
+        if (drawerOverlay != null) {
+            closeDrawer(null);
+            return;
+        }
         if (screen == Screen.SETTINGS) {
             if (settingsReturnScreen == Screen.CHAT && database.getChat(settingsReturnChatId) != null) {
                 showChat(settingsReturnChatId);
@@ -156,47 +176,150 @@ public final class MainActivity extends Activity {
         screen = Screen.HOME;
         currentChatId = -1;
         host.removeAllViews();
+        drawerOverlay = null;
 
         DebugLog.log("NAV", "Open HOME screen");
         LinearLayout root = vertical();
-        root.setBackgroundColor(Ui.BG);
+        root.setBackgroundColor(Color.TRANSPARENT);
         mountScreen(root);
-        root.addView(buildHomeHeader());
-        root.addView(buildHero());
+        root.addView(buildFloatingTopBar(null));
+        root.addView(buildHomeCenter(), new LinearLayout.LayoutParams(matchValue(), 0, 1f));
+        root.addView(buildHomeComposer());
+        animateScreenIn(root);
+    }
 
-        LinearLayout sectionTitle = horizontal(Gravity.CENTER_VERTICAL);
-        sectionTitle.setPadding(Ui.dp(this, 20), Ui.dp(this, 19), Ui.dp(this, 20), Ui.dp(this, 8));
-        TextView title = text("Ваши чаты", 20, Ui.TEXT, true);
-        sectionTitle.addView(title, new LinearLayout.LayoutParams(0, wrap(), 1f));
-        chatCount = text("0", 12, Ui.CYAN, true);
-        chatCount.setGravity(Gravity.CENTER);
-        chatCount.setBackground(Ui.rounded(0x2239D9C8, 11, this));
-        chatCount.setMinWidth(Ui.dp(this, 34));
-        Ui.setPadding(chatCount, 10, 5);
-        sectionTitle.addView(chatCount);
-        root.addView(sectionTitle);
+    private View buildFloatingTopBar(String chatTitle) {
+        LinearLayout bar = horizontal(Gravity.CENTER_VERTICAL);
+        bar.setPadding(Ui.dp(this, 24), Ui.dp(this, 11), Ui.dp(this, 24), Ui.dp(this, 8));
 
-        root.addView(buildChatSearch());
+        ImageButton menu = Ui.iconButton(this, R.drawable.ic_menu, "Открыть меню и чаты");
+        menu.setOnClickListener(v -> showDrawer());
+        bar.addView(menu, new LinearLayout.LayoutParams(Ui.dp(this, 58), Ui.dp(this, 58)));
 
-        FrameLayout listFrame = new FrameLayout(this);
-        root.addView(listFrame, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
-        ListView list = new ListView(this);
-        list.setDivider(null);
-        list.setSelector(android.R.color.transparent);
-        list.setClipToPadding(false);
-        list.setPadding(0, Ui.dp(this, 4), 0, Ui.dp(this, 18));
-        list.setVerticalScrollBarEnabled(false);
-        chatListAdapter = new ChatListAdapter(this, new ChatListAdapter.Listener() {
-            @Override public void onOpen(Chat chat) { showChat(chat.id); }
-            @Override public void onMenu(Chat chat, View anchor) { showChatMenu(chat, anchor); }
+        LinearLayout pill = horizontal(Gravity.CENTER_VERTICAL);
+        pill.setPadding(Ui.dp(this, 18), 0, Ui.dp(this, 18), 0);
+        pill.setBackground(Ui.ripple(Ui.glass(this, 99), 0x2AFFFFFF));
+        pill.setElevation(Ui.dp(this, 5));
+        pill.setContentDescription(chatTitle == null ? "Режим kvsai и настройки" : "Название чата — нажмите, чтобы изменить");
+        TextView primary = text(chatTitle == null ? "kvsai" : TextUtilsEx.compact(chatTitle, 22),
+                17, Ui.TEXT, true);
+        primary.setMaxLines(1);
+        primary.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        pill.addView(primary, new LinearLayout.LayoutParams(0, wrap(), 1f));
+        String modeLabel = settings.isAiEnabled() ? "AI" : "Web";
+        TextView secondary = text("  " + modeLabel, 14, 0xFF9D9EA3, false);
+        secondary.setMaxLines(1);
+        pill.addView(secondary);
+        if (chatTitle != null) {
+            currentChatTitle = primary;
+            currentMode = secondary;
+        } else {
+            currentChatTitle = null;
+            currentMode = null;
+        }
+        pill.setOnClickListener(v -> {
+            if (chatTitle != null) renameDialog(database.getChat(currentChatId));
+            else openSettings();
         });
-        list.setAdapter(chatListAdapter);
-        listFrame.addView(list, match());
+        LinearLayout.LayoutParams pillParams = new LinearLayout.LayoutParams(0, Ui.dp(this, 54), 1f);
+        pillParams.leftMargin = Ui.dp(this, 16);
+        pillParams.rightMargin = Ui.dp(this, 16);
+        bar.addView(pill, pillParams);
 
-        View empty = buildEmptyChats();
-        listFrame.addView(empty, match());
-        list.setEmptyView(empty);
-        refreshChats();
+        currentVoiceButton = Ui.iconButton(this,
+                settings.isVoiceEnabled() ? R.drawable.ic_volume_on : R.drawable.ic_volume_off,
+                "Автоозвучка ответов");
+        currentVoiceButton.setOnClickListener(v -> toggleVoice());
+        bar.addView(currentVoiceButton, new LinearLayout.LayoutParams(Ui.dp(this, 58), Ui.dp(this, 58)));
+        return bar;
+    }
+
+    private View buildHomeCenter() {
+        LinearLayout center = vertical();
+        center.setGravity(Gravity.CENTER);
+        center.setPadding(Ui.dp(this, 28), 0, Ui.dp(this, 28), Ui.dp(this, 24));
+        AssistantOrbView orb = new AssistantOrbView(this);
+        orb.setOnClickListener(v -> createChat());
+        center.addView(orb, new LinearLayout.LayoutParams(Ui.dp(this, 150), Ui.dp(this, 150)));
+
+        TextView greeting = text("Привет,", 27, 0xFFE7E7E9, false);
+        greeting.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        greeting.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams greetingParams = new LinearLayout.LayoutParams(wrap(), wrap());
+        greetingParams.topMargin = Ui.dp(this, 17);
+        center.addView(greeting, greetingParams);
+
+        TextView subtitle = text("давайте создадим что-нибудь", 25, 0xFFD6D6D9, false);
+        subtitle.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        subtitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(wrap(), wrap());
+        subtitleParams.topMargin = Ui.dp(this, 8);
+        center.addView(subtitle, subtitleParams);
+        return center;
+    }
+
+    private View buildHomeComposer() {
+        FrameLayout outer = new FrameLayout(this);
+        outer.setPadding(Ui.dp(this, 24), Ui.dp(this, 8), Ui.dp(this, 24), Ui.dp(this, 20));
+        LinearLayout box = horizontal(Gravity.CENTER_VERTICAL);
+        box.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 9), Ui.dp(this, 7));
+        box.setBackground(Ui.glass(this, 36));
+        box.setElevation(Ui.dp(this, 7));
+
+        TextView add = text("＋", 28, 0xFFE8E8EA, false);
+        add.setGravity(Gravity.CENTER);
+        add.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x32FFFFFF));
+        add.setContentDescription("Создать пустой чат");
+        add.setOnClickListener(v -> createChat());
+        box.addView(add, new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
+
+        homeComposer = new EditText(this);
+        homeComposer.setHint("Спросите. Поручите.");
+        homeComposer.setHintTextColor(0xFF8F9095);
+        homeComposer.setTextColor(Ui.TEXT);
+        homeComposer.setTextSize(18);
+        homeComposer.setSingleLine(true);
+        homeComposer.setBackgroundColor(Color.TRANSPARENT);
+        homeComposer.setPadding(Ui.dp(this, 18), 0, Ui.dp(this, 8), 0);
+        homeComposer.setImeOptions(EditorInfo.IME_ACTION_SEND);
+        homeComposer.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEND) {
+                submitHomeComposer();
+                return true;
+            }
+            return false;
+        });
+        homeComposer.addTextChangedListener(new SimpleTextWatcher() {
+            @Override public void afterTextChanged(Editable value) {
+                boolean hasText = !value.toString().trim().isEmpty();
+                homeActionButton.setImageResource(hasText ? R.drawable.ic_send : R.drawable.ic_waveform);
+                homeActionButton.setAlpha(hasText ? 1f : 0.82f);
+            }
+        });
+        box.addView(homeComposer, new LinearLayout.LayoutParams(0, Ui.dp(this, 58), 1f));
+
+        homeActionButton = new ImageButton(this);
+        homeActionButton.setImageResource(R.drawable.ic_waveform);
+        homeActionButton.setContentDescription("Отправить или продиктовать");
+        homeActionButton.setPadding(Ui.dp(this, 15), Ui.dp(this, 15), Ui.dp(this, 15), Ui.dp(this, 15));
+        homeActionButton.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x32FFFFFF));
+        homeActionButton.setOnClickListener(v -> {
+            if (homeComposer.getText().toString().trim().isEmpty()) startVoiceInput();
+            else submitHomeComposer();
+        });
+        box.addView(homeActionButton, new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
+        outer.addView(box, new FrameLayout.LayoutParams(matchValue(), Ui.dp(this, 72)));
+        return outer;
+    }
+
+    private void submitHomeComposer() {
+        if (homeComposer == null) return;
+        String question = homeComposer.getText().toString().trim();
+        if (question.isEmpty()) return;
+        long chatId = database.createChat();
+        DebugLog.log("UI", "Home prompt created chat=" + chatId);
+        showChat(chatId);
+        askAssistant(chatId, question, true);
     }
 
     private View buildHomeHeader() {
@@ -317,6 +440,141 @@ public final class MainActivity extends Activity {
         if (chatCount != null) chatCount.setText(String.valueOf(database.countChats()));
     }
 
+    private void showDrawer() {
+        if (drawerOverlay != null) return;
+        hideKeyboard();
+        DebugLog.log("NAV", "Open glass navigation drawer");
+        drawerOverlay = new FrameLayout(this);
+
+        View dim = new View(this);
+        dim.setBackgroundColor(0xA6000000);
+        dim.setAlpha(0f);
+        dim.setOnClickListener(v -> closeDrawer(null));
+        drawerOverlay.addView(dim, match());
+
+        LinearLayout panel = vertical();
+        panel.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 16));
+        panel.setBackground(Ui.glass(this, 0));
+        panel.setElevation(Ui.dp(this, 18));
+
+        LinearLayout drawerHeader = horizontal(Gravity.CENTER_VERTICAL);
+        TextView brand = text("kvsai", 24, Ui.TEXT, true);
+        brand.setPadding(Ui.dp(this, 8), 0, 0, 0);
+        drawerHeader.addView(brand, new LinearLayout.LayoutParams(0, Ui.dp(this, 54), 1f));
+        ImageButton close = Ui.iconButton(this, R.drawable.ic_close, "Закрыть меню");
+        close.setOnClickListener(v -> closeDrawer(null));
+        drawerHeader.addView(close, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
+        panel.addView(drawerHeader);
+
+        TextView status = text(settings.snapshot().modeLabel() + "  •  online", 12, 0xFF9EA3AC, false);
+        status.setPadding(Ui.dp(this, 9), 0, 0, Ui.dp(this, 12));
+        panel.addView(status);
+
+        TextView home = drawerAction("Главная", R.drawable.ic_home);
+        home.setOnClickListener(v -> closeDrawer(this::showHome));
+        panel.addView(home, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 50)));
+
+        TextView newChat = drawerAction("Новый чат", R.drawable.ic_add);
+        newChat.setOnClickListener(v -> closeDrawer(this::createChat));
+        LinearLayout.LayoutParams newChatParams = new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 50));
+        newChatParams.topMargin = Ui.dp(this, 7);
+        panel.addView(newChat, newChatParams);
+
+        TextView label = text("ДИАЛОГИ", 10, 0xFF858991, true);
+        label.setLetterSpacing(0.13f);
+        label.setPadding(Ui.dp(this, 9), Ui.dp(this, 19), 0, Ui.dp(this, 7));
+        panel.addView(label);
+
+        LinearLayout searchBox = horizontal(Gravity.CENTER_VERTICAL);
+        searchBox.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 10), 0);
+        searchBox.setBackground(Ui.glassSoft(this, 18));
+        ImageView searchIcon = new ImageView(this);
+        searchIcon.setImageResource(R.drawable.ic_search);
+        searchBox.addView(searchIcon, new LinearLayout.LayoutParams(Ui.dp(this, 20), Ui.dp(this, 20)));
+        chatSearch = new EditText(this);
+        chatSearch.setHint("Найти чат");
+        chatSearch.setHintTextColor(0xFF7F8289);
+        chatSearch.setTextColor(Ui.TEXT);
+        chatSearch.setTextSize(14);
+        chatSearch.setSingleLine(true);
+        chatSearch.setBackgroundColor(Color.TRANSPARENT);
+        chatSearch.setPadding(Ui.dp(this, 9), 0, 0, 0);
+        chatSearch.addTextChangedListener(new SimpleTextWatcher() {
+            @Override public void afterTextChanged(Editable editable) { refreshChats(); }
+        });
+        searchBox.addView(chatSearch, new LinearLayout.LayoutParams(0, Ui.dp(this, 46), 1f));
+        panel.addView(searchBox, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 46)));
+
+        FrameLayout listFrame = new FrameLayout(this);
+        ListView list = new ListView(this);
+        list.setDivider(null);
+        list.setSelector(android.R.color.transparent);
+        list.setVerticalScrollBarEnabled(false);
+        list.setClipToPadding(false);
+        list.setPadding(0, Ui.dp(this, 5), 0, Ui.dp(this, 8));
+        chatListAdapter = new ChatListAdapter(this, new ChatListAdapter.Listener() {
+            @Override public void onOpen(Chat chat) { closeDrawer(() -> showChat(chat.id)); }
+            @Override public void onMenu(Chat chat, View card) { showChatMenu(chat, card); }
+        });
+        list.setAdapter(chatListAdapter);
+        listFrame.addView(list, match());
+        LinearLayout empty = vertical();
+        empty.setGravity(Gravity.CENTER);
+        TextView emptyIcon = text("✦", 28, 0xFF6C8FEF, false);
+        emptyIcon.setGravity(Gravity.CENTER);
+        empty.addView(emptyIcon, new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
+        TextView emptyText = text("Диалогов пока нет", 13, 0xFF8B8E95, false);
+        emptyText.setGravity(Gravity.CENTER);
+        empty.addView(emptyText);
+        listFrame.addView(empty, match());
+        list.setEmptyView(empty);
+        panel.addView(listFrame, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
+
+        TextView settingsRow = drawerAction("Настройки", R.drawable.ic_settings);
+        settingsRow.setOnClickListener(v -> closeDrawer(this::openSettings));
+        panel.addView(settingsRow, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 52)));
+
+        int panelWidth = Math.min((int) (getResources().getDisplayMetrics().widthPixels * 0.87f), Ui.dp(this, 390));
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(panelWidth, matchValue());
+        panelParams.gravity = Gravity.START;
+        drawerOverlay.addView(panel, panelParams);
+        host.addView(drawerOverlay, match());
+        refreshChats();
+
+        panel.setTranslationX(-panelWidth - Ui.dp(this, 20));
+        panel.setAlpha(0.72f);
+        panel.animate().translationX(0).alpha(1f).setDuration(360)
+                .setInterpolator(new DecelerateInterpolator()).start();
+        dim.animate().alpha(1f).setDuration(300).start();
+    }
+
+    private TextView drawerAction(String label, int icon) {
+        TextView item = text("     " + label, 15, Ui.TEXT, false);
+        item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setCompoundDrawablesWithIntrinsicBounds(icon, 0, 0, 0);
+        item.setCompoundDrawablePadding(Ui.dp(this, 12));
+        item.setPadding(Ui.dp(this, 15), 0, Ui.dp(this, 15), 0);
+        item.setBackground(Ui.ripple(Ui.glassSoft(this, 17), 0x2AFFFFFF));
+        return item;
+    }
+
+    private void closeDrawer(Runnable after) {
+        if (drawerOverlay == null) {
+            if (after != null) after.run();
+            return;
+        }
+        FrameLayout closing = drawerOverlay;
+        drawerOverlay = null;
+        View panel = closing.getChildAt(1);
+        View dim = closing.getChildAt(0);
+        panel.animate().translationX(-panel.getWidth() - Ui.dp(this, 20)).alpha(0.65f)
+                .setDuration(280).setInterpolator(new DecelerateInterpolator()).start();
+        dim.animate().alpha(0f).setDuration(260).withEndAction(() -> {
+            host.removeView(closing);
+            if (after != null) after.run();
+        }).start();
+    }
+
     private void createChat() {
         long id = database.createChat();
         DebugLog.log("UI", "New chat button; created id=" + id);
@@ -329,13 +587,14 @@ public final class MainActivity extends Activity {
         menu.getMenu().add("Удалить");
         menu.setOnMenuItemClickListener(item -> {
             if ("Переименовать".contentEquals(item.getTitle())) renameDialog(chat);
-            else deleteDialog(chat);
+            else deleteDialog(chat, anchor);
             return true;
         });
         menu.show();
     }
 
     private void renameDialog(Chat chat) {
+        if (chat == null) return;
         EditText input = dialogInput(chat.title, "Название чата");
         new AlertDialog.Builder(this)
                 .setTitle("Переименовать чат")
@@ -350,20 +609,24 @@ public final class MainActivity extends Activity {
         input.selectAll();
     }
 
-    private void deleteDialog(Chat chat) {
+    private void deleteDialog(Chat chat, View card) {
         if (requestRunning && requestChatId == chat.id) {
             Toast.makeText(this, "Дождитесь ответа перед удалением этого чата", Toast.LENGTH_SHORT).show();
             return;
         }
         new AlertDialog.Builder(this)
-                .setTitle("Удалить чат?")
-                .setMessage("История «" + chat.title + "» будет удалена без возможности восстановления.")
+                .setTitle("Разбить и удалить чат?")
+                .setMessage("Диалог «" + chat.title + "» рассыплется и будет удалён без возможности восстановления.")
                 .setNegativeButton("Отмена", null)
-                .setPositiveButton("Удалить", (dialog, which) -> {
-                    database.deleteChat(chat.id);
-                    if (screen == Screen.CHAT && currentChatId == chat.id) showHome();
-                    else refreshChats();
-                })
+                .setPositiveButton("Удалить", (dialog, which) ->
+                        ShatterOverlay.shatter(this, card, () -> {
+                            database.deleteChat(chat.id);
+                            if (screen == Screen.CHAT && currentChatId == chat.id) {
+                                closeDrawer(this::showHome);
+                            } else {
+                                refreshChats();
+                            }
+                        }))
                 .show();
     }
 
@@ -379,9 +642,9 @@ public final class MainActivity extends Activity {
 
         DebugLog.log("NAV", "Open CHAT screen id=" + chatId + ", title=\"" + chat.title + "\"");
         LinearLayout root = vertical();
-        root.setBackgroundColor(Ui.BG);
+        root.setBackgroundColor(Color.TRANSPARENT);
         mountScreen(root);
-        root.addView(buildChatHeader(chat));
+        root.addView(buildFloatingTopBar(chat.title));
 
         FrameLayout content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
@@ -405,6 +668,7 @@ public final class MainActivity extends Activity {
         root.addView(buildComposer());
         scrollMessagesToEnd();
         updateSendState();
+        animateScreenIn(root);
     }
 
     private View buildChatHeader(Chat chat) {
@@ -446,10 +710,8 @@ public final class MainActivity extends Activity {
         empty.setPadding(Ui.dp(this, 24), Ui.dp(this, 34), Ui.dp(this, 24), Ui.dp(this, 24));
         scroll.addView(empty, matchWidthWrap());
 
-        TextView spark = text("✦", 34, Ui.TEXT, false);
-        spark.setGravity(Gravity.CENTER);
-        spark.setBackground(Ui.gradient(Ui.VIOLET, Ui.VIOLET_DARK, 25, this));
-        empty.addView(spark, new LinearLayout.LayoutParams(Ui.dp(this, 66), Ui.dp(this, 66)));
+        AssistantOrbView spark = new AssistantOrbView(this);
+        empty.addView(spark, new LinearLayout.LayoutParams(Ui.dp(this, 102), Ui.dp(this, 102)));
         TextView title = text("Чем помочь?", 24, Ui.TEXT, true);
         title.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(wrap(), wrap());
@@ -472,8 +734,8 @@ public final class MainActivity extends Activity {
         TextView chip = text(value + "  →", 14, Ui.TEXT, false);
         chip.setGravity(Gravity.CENTER_VERTICAL);
         chip.setPadding(Ui.dp(this, 15), Ui.dp(this, 12), Ui.dp(this, 15), Ui.dp(this, 12));
-        chip.setBackground(Ui.ripple(
-                Ui.roundedStroke(Ui.CARD, 0xFF273448, 15, this), 0x258B5CF6));
+        chip.setBackground(Ui.ripple(Ui.glassSoft(this, 18), 0x2AFFFFFF));
+        chip.setElevation(Ui.dp(this, 2));
         chip.setOnClickListener(v -> sendQuestion(value));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(matchValue(), wrap());
         params.bottomMargin = Ui.dp(this, 9);
@@ -481,33 +743,30 @@ public final class MainActivity extends Activity {
     }
 
     private View buildComposer() {
-        LinearLayout area = vertical();
-        area.setPadding(Ui.dp(this, 12), Ui.dp(this, 7), Ui.dp(this, 12), Ui.dp(this, 10));
-        area.setBackgroundColor(Ui.SURFACE);
+        FrameLayout area = new FrameLayout(this);
+        area.setPadding(Ui.dp(this, 16), Ui.dp(this, 8), Ui.dp(this, 16), Ui.dp(this, 16));
 
-        LinearLayout status = horizontal(Gravity.CENTER_VERTICAL);
-        ImageView globe = new ImageView(this);
-        globe.setImageResource(R.drawable.ic_globe);
-        status.addView(globe, new LinearLayout.LayoutParams(Ui.dp(this, 16), Ui.dp(this, 16)));
-        TextView statusText = text(settings.isWebEnabled()
-                ? "Веб-поиск включён • ответы содержат источники"
-                : "Веб-поиск выключен", 10, Ui.DIM, false);
-        statusText.setPadding(Ui.dp(this, 6), 0, 0, 0);
-        status.addView(statusText);
-        area.addView(status);
+        LinearLayout box = horizontal(Gravity.CENTER_VERTICAL);
+        box.setPadding(Ui.dp(this, 8), Ui.dp(this, 7), Ui.dp(this, 8), Ui.dp(this, 7));
+        box.setBackground(Ui.glass(this, 34));
+        box.setElevation(Ui.dp(this, 7));
 
-        LinearLayout box = horizontal(Gravity.BOTTOM);
-        box.setPadding(Ui.dp(this, 13), Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 6));
-        box.setBackground(Ui.roundedStroke(Ui.CARD, 0xFF29364A, 20, this));
+        TextView add = text("＋", 25, 0xFFE6E6E8, false);
+        add.setGravity(Gravity.CENTER);
+        add.setContentDescription("Новый чат");
+        add.setBackground(Ui.ripple(Ui.glassSoft(this, 99), 0x32FFFFFF));
+        add.setOnClickListener(v -> createChat());
+        box.addView(add, new LinearLayout.LayoutParams(Ui.dp(this, 50), Ui.dp(this, 50)));
+
         composer = new EditText(this);
-        composer.setHint("Напишите сообщение…");
-        composer.setHintTextColor(Ui.DIM);
+        composer.setHint("Спросите меня…");
+        composer.setHintTextColor(0xFF8E9096);
         composer.setTextColor(Ui.TEXT);
-        composer.setTextSize(15);
+        composer.setTextSize(16);
         composer.setBackgroundColor(Color.TRANSPARENT);
-        composer.setPadding(0, Ui.dp(this, 7), Ui.dp(this, 7), Ui.dp(this, 7));
+        composer.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 8), Ui.dp(this, 7));
         composer.setMinLines(1);
-        composer.setMaxLines(5);
+        composer.setMaxLines(4);
         composer.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         composer.setImeOptions(EditorInfo.IME_ACTION_SEND);
@@ -523,14 +782,17 @@ public final class MainActivity extends Activity {
         });
         box.addView(composer, new LinearLayout.LayoutParams(0, wrap(), 1f));
 
-        sendButton = Ui.iconButton(this, R.drawable.ic_send, "Отправить");
-        sendButton.setBackground(Ui.ripple(Ui.gradient(Ui.VIOLET, Ui.VIOLET_DARK, 17, this), 0x55FFFFFF));
-        sendButton.setOnClickListener(v -> submitComposer());
-        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48));
-        box.addView(sendButton, sendParams);
-        LinearLayout.LayoutParams boxParams = new LinearLayout.LayoutParams(matchValue(), wrap());
-        boxParams.topMargin = Ui.dp(this, 6);
-        area.addView(box, boxParams);
+        sendButton = new ImageButton(this);
+        sendButton.setImageResource(R.drawable.ic_waveform);
+        sendButton.setContentDescription("Отправить или продиктовать");
+        sendButton.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14));
+        sendButton.setBackground(Ui.ripple(Ui.glassBlue(this, 99), 0x55FFFFFF));
+        sendButton.setOnClickListener(v -> {
+            if (composer.getText().toString().trim().isEmpty()) startVoiceInput();
+            else submitComposer();
+        });
+        box.addView(sendButton, new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52)));
+        area.addView(box, new FrameLayout.LayoutParams(matchValue(), wrap()));
         return area;
     }
 
@@ -586,6 +848,7 @@ public final class MainActivity extends Activity {
                 if (database.getChat(chatId) != null) {
                     database.addMessage(chatId, ChatMessage.ROLE_ASSISTANT, reply.text, reply.sources);
                 }
+                speakReply(reply.text);
                 requestRunning = false;
                 requestChatId = -1;
                 if (screen == Screen.CHAT && currentChatId == chatId && messageAdapter != null) {
@@ -624,7 +887,8 @@ public final class MainActivity extends Activity {
     private void updateSendState() {
         if (sendButton == null) return;
         boolean hasText = composer != null && !composer.getText().toString().trim().isEmpty();
-        boolean enabled = hasText && !requestRunning;
+        boolean enabled = !requestRunning;
+        sendButton.setImageResource(hasText ? R.drawable.ic_send : R.drawable.ic_waveform);
         sendButton.setEnabled(enabled);
         sendButton.setAlpha(enabled ? 1f : 0.42f);
         if (composer != null) composer.setEnabled(!requestRunning);
@@ -648,19 +912,21 @@ public final class MainActivity extends Activity {
         host.removeAllViews();
         DebugLog.log("NAV", "Open SETTINGS screen; return=" + settingsReturnScreen);
         LinearLayout root = vertical();
-        root.setBackgroundColor(Ui.BG);
+        root.setBackgroundColor(Color.TRANSPARENT);
         mountScreen(root);
 
         LinearLayout header = horizontal(Gravity.CENTER_VERTICAL);
-        header.setPadding(Ui.dp(this, 10), Ui.dp(this, 9), Ui.dp(this, 16), Ui.dp(this, 9));
-        header.setBackgroundColor(Ui.SURFACE);
+        header.setPadding(Ui.dp(this, 24), Ui.dp(this, 11), Ui.dp(this, 24), Ui.dp(this, 8));
         ImageButton back = Ui.iconButton(this, R.drawable.ic_back, "Назад");
-        back.setBackgroundColor(Color.TRANSPARENT);
         back.setOnClickListener(v -> onBackPressed());
-        header.addView(back, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
-        TextView title = text("Настройки", 20, Ui.TEXT, true);
-        title.setPadding(Ui.dp(this, 5), 0, 0, 0);
-        header.addView(title, new LinearLayout.LayoutParams(0, wrap(), 1f));
+        header.addView(back, new LinearLayout.LayoutParams(Ui.dp(this, 58), Ui.dp(this, 58)));
+        TextView title = text("Настройки", 18, Ui.TEXT, true);
+        title.setGravity(Gravity.CENTER);
+        title.setBackground(Ui.glass(this, 99));
+        title.setElevation(Ui.dp(this, 5));
+        LinearLayout.LayoutParams settingsTitleParams = new LinearLayout.LayoutParams(0, Ui.dp(this, 54), 1f);
+        settingsTitleParams.leftMargin = Ui.dp(this, 16);
+        header.addView(title, settingsTitleParams);
         root.addView(header);
 
         ScrollView scroll = new ScrollView(this);
@@ -686,6 +952,27 @@ public final class MainActivity extends Activity {
         webHintParams.topMargin = Ui.dp(this, 7);
         webCard.addView(webHint, webHintParams);
         content.addView(webCard, cardParams());
+
+        LinearLayout voiceCard = settingsCard();
+        Switch voiceSwitch = new Switch(this);
+        voiceSwitch.setText("Автоозвучка ответов");
+        voiceSwitch.setTextColor(Ui.TEXT);
+        voiceSwitch.setTextSize(16);
+        voiceSwitch.setChecked(settings.isVoiceEnabled());
+        voiceCard.addView(voiceSwitch, matchWidthWrap());
+        TextView voiceHint = text("После ответа kvsai прочитает текст системным русским голосом. " +
+                "Микрофон в поле ввода работает независимо.", 13, Ui.MUTED, false);
+        voiceHint.setLineSpacing(0, 1.08f);
+        LinearLayout.LayoutParams voiceHintParams = new LinearLayout.LayoutParams(matchValue(), wrap());
+        voiceHintParams.topMargin = Ui.dp(this, 7);
+        voiceCard.addView(voiceHint, voiceHintParams);
+        voiceSwitch.setOnCheckedChangeListener((button, checked) -> {
+            settings.setVoiceEnabled(checked);
+            if (checked) initializeSpeech();
+            else if (textToSpeech != null) textToSpeech.stop();
+            DebugLog.log("VOICE", "Auto speech from settings=" + checked);
+        });
+        content.addView(voiceCard, cardParams());
 
         content.addView(sectionLabel("AI-ПРОВАЙДЕР"));
         LinearLayout aiCard = settingsCard();
@@ -734,10 +1021,10 @@ public final class MainActivity extends Activity {
 
         TextView localTip = text("💡 Для полностью локальной модели запустите Ollama или LM Studio на компьютере, " +
                 "укажите его адрес в локальной сети (например, http://192.168.1.2:11434/v1) и включите нейросеть.",
-                13, 0xFFD8CCFF, false);
+                13, 0xFFD4E7FF, false);
         localTip.setLineSpacing(0, 1.12f);
         localTip.setPadding(Ui.dp(this, 15), Ui.dp(this, 13), Ui.dp(this, 15), Ui.dp(this, 13));
-        localTip.setBackground(Ui.roundedStroke(0x221E123C, 0xFF392862, 15, this));
+        localTip.setBackground(Ui.glassBlue(this, 17));
         LinearLayout.LayoutParams tipParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         tipParams.bottomMargin = Ui.dp(this, 18);
         content.addView(localTip, tipParams);
@@ -810,11 +1097,12 @@ public final class MainActivity extends Activity {
         dataCard.addView(clear, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 44)));
         content.addView(dataCard, cardParams());
 
-        TextView version = text("kvsai 1.1.0  •  Android 8.0+", 12, Ui.DIM, false);
+        TextView version = text("kvsai 1.2.0  •  Android 8.0+", 12, Ui.DIM, false);
         version.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams versionParams = new LinearLayout.LayoutParams(matchValue(), wrap());
         versionParams.topMargin = Ui.dp(this, 8);
         content.addView(version, versionParams);
+        animateScreenIn(root);
     }
 
     private void clearAllDialog() {
@@ -851,7 +1139,7 @@ public final class MainActivity extends Activity {
         input.setSingleLine(true);
         input.setInputType(inputType);
         input.setPadding(Ui.dp(this, 13), 0, Ui.dp(this, 13), 0);
-        input.setBackground(Ui.roundedStroke(Ui.BG, 0xFF29364A, 12, this));
+        input.setBackground(Ui.glassSoft(this, 14));
         LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 50));
         inputParams.bottomMargin = Ui.dp(this, 8);
         parent.addView(input, inputParams);
@@ -861,7 +1149,8 @@ public final class MainActivity extends Activity {
     private LinearLayout settingsCard() {
         LinearLayout card = vertical();
         card.setPadding(Ui.dp(this, 16), Ui.dp(this, 15), Ui.dp(this, 16), Ui.dp(this, 15));
-        card.setBackground(Ui.roundedStroke(Ui.CARD, 0xFF222E40, 18, this));
+        card.setBackground(Ui.glassSoft(this, 22));
+        card.setElevation(Ui.dp(this, 3));
         return card;
     }
 
@@ -887,19 +1176,19 @@ public final class MainActivity extends Activity {
         button.setAllCaps(false);
         button.setGravity(Gravity.CENTER);
         button.setPadding(Ui.dp(this, 17), 0, Ui.dp(this, 17), 0);
-        button.setBackground(Ui.ripple(Ui.gradient(Ui.VIOLET, Ui.VIOLET_DARK, 15, this), 0x55FFFFFF));
+        button.setBackground(Ui.ripple(Ui.glassBlue(this, 18), 0x55FFFFFF));
+        button.setElevation(Ui.dp(this, 4));
         return button;
     }
 
     private Button secondaryButton(String value) {
         Button button = new Button(this);
         button.setText(value);
-        button.setTextColor(0xFFD8CCFF);
+        button.setTextColor(0xFFD7E8FF);
         button.setTextSize(14);
         button.setAllCaps(false);
         button.setPadding(Ui.dp(this, 16), 0, Ui.dp(this, 16), 0);
-        button.setBackground(Ui.ripple(
-                Ui.roundedStroke(0x228B5CF6, 0xFF59408C, 14, this), 0x338B5CF6));
+        button.setBackground(Ui.ripple(Ui.glassBlue(this, 16), 0x334A9CFF));
         return button;
     }
 
@@ -910,8 +1199,7 @@ public final class MainActivity extends Activity {
         button.setTextSize(12);
         button.setAllCaps(false);
         button.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), 0);
-        button.setBackground(Ui.ripple(
-                Ui.roundedStroke(Color.TRANSPARENT, 0xFF273448, 11, this), 0x2239D9C8));
+        button.setBackground(Ui.ripple(Ui.glassSoft(this, 12), 0x224A9CFF));
         return button;
     }
 
@@ -924,13 +1212,23 @@ public final class MainActivity extends Activity {
     private void mountScreen(View screenView) {
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.VERTICAL);
-        shell.setBackgroundColor(Ui.BG);
-        shell.addView(screenView, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
+        shell.setBackgroundColor(0xFF0B0C0E);
+        FrameLayout stage = new FrameLayout(this);
+        stage.addView(new AmbientBackgroundView(this), match());
+        stage.addView(screenView, match());
+        shell.addView(stage, new LinearLayout.LayoutParams(matchValue(), 0, 1f));
         if (settings.isDebugEnabled()) {
             DebugConsoleView console = new DebugConsoleView(this);
             shell.addView(console, new LinearLayout.LayoutParams(matchValue(), Ui.dp(this, 180)));
         }
         host.addView(shell, match());
+    }
+
+    private void animateScreenIn(View screenView) {
+        screenView.setAlpha(0f);
+        screenView.setTranslationY(Ui.dp(this, 12));
+        screenView.animate().alpha(1f).translationY(0f).setDuration(380)
+                .setInterpolator(new DecelerateInterpolator()).start();
     }
 
     private LinearLayout vertical() {
@@ -964,7 +1262,7 @@ public final class MainActivity extends Activity {
         input.setTextColor(Ui.TEXT);
         input.setHintTextColor(Ui.DIM);
         input.setSingleLine(true);
-        input.setBackground(Ui.roundedStroke(Ui.CARD, 0xFF334158, 12, this));
+        input.setBackground(Ui.glassSoft(this, 14));
         input.setPadding(Ui.dp(this, 13), 0, Ui.dp(this, 13), 0);
         return input;
     }
@@ -974,6 +1272,79 @@ public final class MainActivity extends Activity {
         wrapper.setPadding(Ui.dp(this, 22), Ui.dp(this, 8), Ui.dp(this, 22), 0);
         wrapper.addView(input, new FrameLayout.LayoutParams(matchValue(), Ui.dp(this, 52)));
         return wrapper;
+    }
+
+    private void initializeSpeech() {
+        if (textToSpeech != null) return;
+        textToSpeech = new TextToSpeech(getApplicationContext(), status -> {
+            textToSpeechReady = status == TextToSpeech.SUCCESS;
+            if (textToSpeechReady) {
+                int language = textToSpeech.setLanguage(new Locale("ru", "RU"));
+                textToSpeechReady = language != TextToSpeech.LANG_MISSING_DATA
+                        && language != TextToSpeech.LANG_NOT_SUPPORTED;
+                textToSpeech.setSpeechRate(1.02f);
+                textToSpeech.setPitch(1.0f);
+            }
+            DebugLog.log("VOICE", "TTS initialized; ready=" + textToSpeechReady);
+        });
+    }
+
+    private void toggleVoice() {
+        boolean enabled = !settings.isVoiceEnabled();
+        settings.setVoiceEnabled(enabled);
+        if (enabled) initializeSpeech();
+        else if (textToSpeech != null) textToSpeech.stop();
+        if (currentVoiceButton != null) {
+            currentVoiceButton.setImageResource(enabled ? R.drawable.ic_volume_on : R.drawable.ic_volume_off);
+        }
+        DebugLog.log("VOICE", "Auto speech=" + enabled);
+        Toast.makeText(this, enabled ? "Автоозвучка включена" : "Автоозвучка выключена", Toast.LENGTH_SHORT).show();
+    }
+
+    private void speakReply(String markdown) {
+        if (!settings.isVoiceEnabled()) return;
+        if (textToSpeech == null) initializeSpeech();
+        if (!textToSpeechReady || textToSpeech == null) return;
+        String spoken = markdown.replaceAll("(?s)```.*?```", " Блок кода. ")
+                .replaceAll("[*_#`]", "")
+                .replaceAll("\\[(\\d+)]", "источник $1")
+                .replaceAll("\\s+", " ").trim();
+        if (spoken.length() > 3800) spoken = spoken.substring(0, 3800);
+        textToSpeech.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "kvsai-reply");
+        DebugLog.log("VOICE", "Speaking assistant reply; chars=" + spoken.length());
+    }
+
+    private void startVoiceInput() {
+        try {
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU");
+            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Скажите запрос для kvsai");
+            startActivityForResult(intent, VOICE_REQUEST_CODE);
+            DebugLog.log("VOICE", "System speech recognizer opened");
+        } catch (Exception error) {
+            DebugLog.error("VOICE", error);
+            Toast.makeText(this, "На устройстве нет голосового ввода", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != VOICE_REQUEST_CODE || resultCode != RESULT_OK || data == null) return;
+        ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+        if (results == null || results.isEmpty()) return;
+        String value = results.get(0).trim();
+        DebugLog.log("VOICE", "Recognized input chars=" + value.length());
+        if (screen == Screen.HOME && homeComposer != null) {
+            homeComposer.setText(value);
+            homeComposer.setSelection(value.length());
+            submitHomeComposer();
+        } else if (screen == Screen.CHAT && composer != null) {
+            composer.setText(value);
+            composer.setSelection(value.length());
+            submitComposer();
+        }
     }
 
     private void openUrl(String value) {

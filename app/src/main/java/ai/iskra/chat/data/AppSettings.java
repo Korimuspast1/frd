@@ -31,6 +31,14 @@ public final class AppSettings {
         return preferences.getBoolean("debug_enabled", false);
     }
 
+    public boolean isVoiceEnabled() {
+        return preferences.getBoolean("voice_enabled", false);
+    }
+
+    public void setVoiceEnabled(boolean enabled) {
+        preferences.edit().putBoolean("voice_enabled", enabled).apply();
+    }
+
     public String getEndpoint() {
         return preferences.getString("endpoint", DEFAULT_ENDPOINT);
     }

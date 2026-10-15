@@ -12,13 +12,13 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 
 public final class Ui {
-    public static final int BG = Color.rgb(8, 11, 18);
-    public static final int SURFACE = Color.rgb(14, 19, 29);
-    public static final int CARD = Color.rgb(18, 25, 37);
-    public static final int CARD_HIGH = Color.rgb(25, 34, 50);
-    public static final int VIOLET = Color.rgb(139, 92, 246);
-    public static final int VIOLET_DARK = Color.rgb(100, 55, 216);
-    public static final int CYAN = Color.rgb(57, 217, 200);
+    public static final int BG = Color.rgb(11, 12, 14);
+    public static final int SURFACE = Color.rgb(18, 19, 22);
+    public static final int CARD = Color.rgb(26, 27, 31);
+    public static final int CARD_HIGH = Color.rgb(36, 38, 43);
+    public static final int VIOLET = Color.rgb(91, 156, 255);
+    public static final int VIOLET_DARK = Color.rgb(63, 101, 214);
+    public static final int CYAN = Color.rgb(114, 200, 255);
     public static final int TEXT = Color.rgb(245, 247, 251);
     public static final int MUTED = Color.rgb(167, 176, 192);
     public static final int DIM = Color.rgb(127, 137, 154);
@@ -51,6 +51,34 @@ public final class Ui {
         return drawable;
     }
 
+    /** Semi-transparent matte surface with a bright glass rim. */
+    public static Drawable glass(Context context, float radiusDp) {
+        GradientDrawable drawable = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{0xB03B3C40, 0x8A28292D, 0x9A202126});
+        drawable.setCornerRadius(dp(context, radiusDp));
+        drawable.setStroke(Math.max(1, dp(context, 1)), 0x4AFFFFFF);
+        return drawable;
+    }
+
+    public static Drawable glassSoft(Context context, float radiusDp) {
+        GradientDrawable drawable = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{0x7A34363C, 0x56212329, 0x70202227});
+        drawable.setCornerRadius(dp(context, radiusDp));
+        drawable.setStroke(Math.max(1, dp(context, 1)), 0x32FFFFFF);
+        return drawable;
+    }
+
+    public static Drawable glassBlue(Context context, float radiusDp) {
+        GradientDrawable drawable = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{0xD05B9CFF, 0xCC3F65D6, 0xD3323A86});
+        drawable.setCornerRadius(dp(context, radiusDp));
+        drawable.setStroke(Math.max(1, dp(context, 1)), 0x66DCEBFF);
+        return drawable;
+    }
+
     public static Drawable ripple(Drawable content, int rippleColor) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             return new RippleDrawable(ColorStateList.valueOf(rippleColor), content, null);
@@ -77,9 +105,11 @@ public final class Ui {
         ImageButton button = new ImageButton(context);
         button.setImageResource(drawableId);
         button.setContentDescription(description);
-        button.setBackground(ripple(rounded(CARD, 14, context), 0x338B5CF6));
+        button.setBackground(ripple(glass(context, 99), 0x33FFFFFF));
         button.setPadding(dp(context, 12), dp(context, 12), dp(context, 12), dp(context, 12));
         button.setScaleType(ImageButton.ScaleType.CENTER_INSIDE);
+        button.setElevation(dp(context, 5));
+        button.setStateListAnimator(null);
         return button;
     }
 }
