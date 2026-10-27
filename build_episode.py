@@ -45,6 +45,24 @@ AMBER = (224, 166, 84)
 ICE = (232, 240, 244)
 INK = (9, 16, 22)
 
+# --- Параметры выпуска (переопределяются в build_episode_02.py) ---
+OUT_NAME = "episode_01_first_day.mp4"
+META_TITLE = "ПЕРВЫЙ ДЕНЬ — Серия 01"
+META_COMMENT = "Инструкция по выживанию в зомби-апокалипсисе в РФ"
+INTRO_IMG = "img00_title.png"
+OUTRO_IMG = "img12_finale.png"
+CARD = dict(
+    intro_title="ПЕРВЫЙ ДЕНЬ",
+    intro_sub="СЕРИЯ 01  ·  УТРО, КОГДА ГОРОД ЗАБОЛЕЛ",
+    intro_line="ИНСТРУКЦИЯ ПО ВЫЖИВАНИЮ В РФ   ·   8 ПРАВИЛ   ·   3 МИНУТЫ",
+    intro_footer="ПРОСТО СМОТРИ",
+    outro_title="КОНЕЦ ПЕРВОЙ СЕРИИ",
+    outro_sub="ДАЛЬШЕ — ВЫХОД ВО ДВОР",
+    outro_line="8 ПРАВИЛ  ·  1 ДЕНЬ  ·  ПРОДОЛЖЕНИЕ СЛЕДУЕТ",
+    outro_footer="ПЕРВЫЙ ДЕНЬ   ·   СЕРИЯ 01",
+    series_tag="ПЕРВЫЙ ДЕНЬ   •   СЕРИЯ 01",
+)
+
 # ----------------------------------------------------------------------------
 # СЦЕНАРИЙ / ТАЙМКОДЫ
 # ----------------------------------------------------------------------------
@@ -312,7 +330,7 @@ def build_timeline(voice):
         raise RuntimeError("Хронометраж не сходится: outro=%d кадров" % outro_f)
 
     shots = []
-    shots.append(dict(start=0, end=INTRO_F, img="img00_title.png",
+    shots.append(dict(start=0, end=INTRO_F, img=INTRO_IMG,
                       card="intro", progress=0.0, fade_in=("in", 0.8), fade_out=("out", 0.35)))
     for st in scenes_tl:
         sc = st["spec"]
@@ -328,7 +346,7 @@ def build_timeline(voice):
                               fade_in=("in", 0.25) if i == 0 else None,
                               fade_out=None))
             p += n
-    shots.append(dict(start=used, end=TOTAL_FRAMES, img="img12_finale.png",
+    shots.append(dict(start=used, end=TOTAL_FRAMES, img=OUTRO_IMG,
                       card="outro", progress=1.0,
                       fade_in=("in", 0.30), fade_out=("out", 1.0)))
     print("[timeline] сцен: %d, кадров: %d, outro: %.2f c, титров: %d"
@@ -728,22 +746,22 @@ def make_hud(shot, out_path):
     im = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     if shot["card"] == "intro":
-        d.text((W // 2, 268), "ПЕРВЫЙ ДЕНЬ", font=font(86), fill=ICE, anchor="mm",
+        d.text((W // 2, 268), CARD["intro_title"], font=font(86), fill=ICE, anchor="mm",
                stroke_width=2, stroke_fill=(0, 0, 0, 160))
         d.line([(W // 2 - 205, 338), (W // 2 + 205, 338)], fill=AMBER + (230,), width=3)
-        d.text((W // 2, 392), "СЕРИЯ 01  ·  УТРО, КОГДА ГОРОД ЗАБОЛЕЛ",
+        d.text((W // 2, 392), CARD["intro_sub"],
                font=font(27), fill=AMBER, anchor="mm")
-        d.text((W // 2, 452), "ИНСТРУКЦИЯ ПО ВЫЖИВАНИЮ В РФ   ·   8 ПРАВИЛ   ·   3 МИНУТЫ",
+        d.text((W // 2, 452), CARD["intro_line"],
                font=font(18), fill=(206, 218, 226), anchor="mm")
-        d.text((W // 2, H - 46), "ПРОСТО СМОТРИ", font=font(16), fill=(160, 176, 188), anchor="mm")
+        d.text((W // 2, H - 46), CARD["intro_footer"], font=font(16), fill=(160, 176, 188), anchor="mm")
     elif shot["card"] == "outro":
-        d.text((W // 2, 250), "КОНЕЦ ПЕРВОЙ СЕРИИ", font=font(64), fill=ICE, anchor="mm",
+        d.text((W // 2, 250), CARD["outro_title"], font=font(64), fill=ICE, anchor="mm",
                stroke_width=2, stroke_fill=(0, 0, 0, 160))
         d.line([(W // 2 - 190, 318), (W // 2 + 190, 318)], fill=AMBER + (230,), width=3)
-        d.text((W // 2, 372), "ДАЛЬШЕ — ВЫХОД ВО ДВОР", font=font(30), fill=AMBER, anchor="mm")
-        d.text((W // 2, 430), "8 ПРАВИЛ  ·  1 ДЕНЬ  ·  ПРОДОЛЖЕНИЕ СЛЕДУЕТ",
+        d.text((W // 2, 372), CARD["outro_sub"], font=font(30), fill=AMBER, anchor="mm")
+        d.text((W // 2, 430), CARD["outro_line"],
                font=font(19), fill=(214, 226, 234), anchor="mm")
-        d.text((W // 2, H - 46), "ПЕРВЫЙ ДЕНЬ   ·   СЕРИЯ 01", font=font(16),
+        d.text((W // 2, H - 46), CARD["outro_footer"], font=font(16),
                fill=(160, 176, 188), anchor="mm")
     else:
         draw_shade(d)
@@ -755,7 +773,7 @@ def make_hud(shot, out_path):
                             fill=(12, 22, 30, 214), outline=AMBER + (220,), width=2)
         d.text((bx0 + bw / 2, by0 + bh / 2), label, font=f_badge, fill=AMBER, anchor="mm")
         d.text((bx0 + bw + 20, by0 + bh / 2), shot["title"], font=f_title, fill=ICE, anchor="lm")
-        d.text((W - 40, 56), "ПЕРВЫЙ ДЕНЬ   •   СЕРИЯ 01", font=f_tag,
+        d.text((W - 40, 56), CARD["series_tag"], font=f_tag,
                fill=(206, 218, 226, 220), anchor="rm")
         px0, px1, py = 40, W - 40, H - 22
         d.rounded_rectangle([px0, py, px1, py + 4], radius=2, fill=(255, 255, 255, 38))
@@ -962,12 +980,12 @@ def main():
     audio = build_audio(tl, voice)
     cap_meta = build_graphics(tl)
     video = render_video(tl)
-    final = os.path.join(ROOT, "episode_01_first_day.mp4")
+    final = os.path.join(ROOT, OUT_NAME)
     run([FF, "-y", "-v", "error", "-i", video, "-i", audio,
          "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
          "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart",
-         "-t", "180", "-metadata", "title=ПЕРВЫЙ ДЕНЬ — Серия 01",
-         "-metadata", "comment=Инструкция по выживанию в зомби-апокалипсисе в РФ",
+         "-t", "180", "-metadata", "title=" + META_TITLE,
+         "-metadata", "comment=" + META_COMMENT,
          final])
     print("[mux] %s (%.1f MB)" % (final, os.path.getsize(final) / 1e6))
     qc(final, cap_meta)
