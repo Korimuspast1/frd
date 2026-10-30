@@ -1,0 +1,10 @@
+*.mp4
+*.exe
+*.zip
+*.7z
+*.rar
+*.dmg
+*.pkg
+.DS_Store
+*.log
+tmp/

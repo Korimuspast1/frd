@@ -1,0 +1,13 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1001 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_scenes:
+  - fileID: 123456789
+    guid: 00000000000000000000000000000000
+    type: 0
+    enabled: 1
+  m_sceneList: []

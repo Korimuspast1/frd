@@ -1,0 +1,320 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!107 &1
+ProjectSettings:
+  m_ObjectHideFlags: 0
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 0}
+  m_productName: Beepnook
+  m_companyName: Korimuspast1
+  m_defaultScreenWidth: 1080
+  m_defaultScreenHeight: 1920
+  m_d3d11FullscreenMode: 1
+  m_d3d9FullscreenMode: 1
+  m_openGLFullscreenMode: 1
+  m_displayResolutionDialog: 2
+  m_displayResolutionHeight: 1080
+  m_displayResolutionWidth: 1920
+  m_graphicsDevicePriority: []
+  m_graphicsJobsMode: 0
+  m_activeColorSpace: 0
+  m_textureCompressionQuality: 50
+  m_buildPipelineBuildOptions: 0
+  m_applicationIdentifier: com.korimuspast1.beepnook
+  m_applicationVersion: 1.0
+  m_graphicsAPIs:
+  - 31
+  m_graphicsAPIsAndroid:
+  - 32
+  m_targetDevice: 0
+  m_targetOS: 0
+  m_targetUrl: 
+  m_companyLogo: {fileID: 0}
+  m_productLogo: {fileID: 0}
+  m_splashScreenBackground: {fileID: 0}
+  m_splashScreenBackgroundDark: {fileID: 0}
+  m_splashScreenBackgroundLight: {fileID: 0}
+  m_splashScreenOverlayOpacity: 0
+  m_splashScreenOverlayColor: {r: 0, g: 0, b: 0, a: 0}
+  m_splashScreenScaleMode: 0
+  m_splashScreenWidth: 1920
+  m_splashScreenHeight: 1080
+  m_splashScreenAnimation: 1
+  m_splashScreenLogoAnimation: 1
+  m_splashScreenCustomGUID: 00000000000000000000000000000000
+  m_splashScreenStyle: 0
+  m_splashScreenBackgroundImage: {fileID: 0}
+  m_splashScreenBackgroundImageDark: {fileID: 0}
+  m_splashScreenBackgroundImageLight: {fileID: 0}
+  m_splashScreenOverlay: {fileID: 0}
+  m_splashScreenLogo: {fileID: 0}
+  m_splashScreenLogoDark: {fileID: 0}
+  m_splashScreenLogoLight: {fileID: 0}
+  m_sceneList:
+  - {fileID: 123456789, guid: 00000000000000000000000000000000, type: 0, enabled: 1}
+  m_iconInBuildHeader: 0
+  m_allowPauseInBackground: 1
+  m_logObjCUncaughtExceptionsOnMainThread: 1
+  m_useOnDemandResources: 0
+  m_hostAppBundleIdentifier: 
+  m_enableInternalProfiler: 0
+  m_showDiagnosticsOnUI: 0
+  m_tizenGameCertificates: 
+  m_tizenPrivileges: 
+  m_tizenCategory: 0
+  m_tizenOtherPrivileges: 
+  m_tizenProfile: 0
+  m_accelerometerFrequency: 50
+  m_locationServiceEnabled: 0
+  m_resetGuidOnBuild: 0
+  m_appleDeveloperTeamID: 
+  m_appleEnableAutomaticSigning: 0
+  m_appleManualProvisioningProfileID: 
+  m_appleManualProvisioningProfileName: 
+  m_iPhoneStrippingLevel: 0
+  m_iPhoneRunInBackground: 0
+  m_iPhoneAllowLocationService: 0
+  m_iPhoneRequiresPersistentWiFi: 0
+  m_iPhoneAutoRenderFromGBRtoPVR: 1
+  m_iOSUseRotationAuthority: 0
+  m_tvosRequireExtendedGameController: 0
+  m_tvosExtendedGameControllerRequired: 0
+  m_tvosAppIcon: {fileID: 0}
+  m_tvosTopShelfImage: {fileID: 0}
+  m_tvosUseOnDemandResources: 0
+  m_tvosInAppPurchase: 0
+  m_tvosCloudKit: 0
+  m_tvosCloudKitContainerIdentifier: 
+  m_tvosPushNotifications: 0
+  m_tvosBackgroundModes: 0
+  m_tvosAppGroups: 0
+  m_tvosInterAppAudio: 0
+  m_tvosHomeKit: 0
+  m_tvosHealthKit: 0
+  m_tvosWirelessAccessory: 0
+  m_tvosMultipeerConnectivity: 0
+  m_tvosCarPlay: 0
+  m_tvosGameCenter: 0
+  m_tvosInAppPurchasePromo: 0
+  m_tvosExternalAccessory: 0
+  m_tvosAVFoundation: 0
+  m_tvosCoreBluetooth: 0
+  m_tvosCoreLocation: 0
+  m_tvosContacts: 0
+  m_tvosCoreMotion: 0
+  m_tvosCoreMedia: 0
+  m_tvosCoreTelephony: 0
+  m_tvosCoreData: 0
+  m_tvosCoreGraphics: 0
+  m_tvosCoreImage: 0
+  m_tvosCoreText: 0
+  m_tvosFoundation: 0
+  m_tvosUIKit: 0
+  m_tvosMetal: 0
+  m_tvosOpenGLES: 0
+  m_tvosSceneKit: 0
+  m_tvosSpriteKit: 0
+  m_tvosCoreVideo: 0
+  m_tvosAccelerate: 0
+  m_tvosAccounts: 0
+  m_tvosAddressBook: 0
+  m_tvosAdSupport: 0
+  m_tvosAssetsLibrary: 0
+  m_tvosBluetooth: 0
+  m_tvosCFNetwork: 0
+  m_tvosCoreAudio: 0
+  m_tvosCoreMIDI: 0
+  m_tvosEventKit: 0
+  m_tvosGLKit: 0
+  m_tvosImageIO: 0
+  m_tvosJavaScriptCore: 0
+  m_tvosMediaPlayer: 0
+  m_tvosNewsstandKit: 0
+  m_tvosPassKit: 0
+  m_tvosQuartzCore: 0
+  m_tvosSafariServices: 0
+  m_tvosSocial: 0
+  m_tvosStoreKit: 0
+  m_tvosSystemConfiguration: 0
+  m_tvosTwitter: 0
+  m_tvosWebKit: 0
+  m_iphoneUseRotationalAuthority: 0
+  m_tvosPushNotificationsEnabled: 0
+  m_vrEditorSettings: {fileID: 0}
+  m_vrSettings:
+  - {fileID: 0}
+  m_vrEditorEnabled: []
+  m_vrEnabled: []
+  m_templatePackageIds: []
+  m_defaultLayoutName: Default
+  m_audioSpatializerPluginName: 
+  m_audioAmbisonicPluginName: 
+  m_audioAmbisonicDecoderPluginName: 
+  m_audioMixerPluginName: 
+  m_audioFlarePluginName: 
+  m_audioListenerLoudness: 0
+  m_audioEngineUpdateQuantum: 0
+  m_audioDriverType: 0
+  m_audioSpeakerMode: 2
+  m_audioOutput: -1
+  m_audioBufferSize: 0
+  m_audioNumBuffers: 0
+  m_audioLatency: 0
+  m_audioSampleRate: 0
+  m_audioDSPBufferSize: 0
+  m_audioNumDSPBuffers: 0
+  m_audioDSPLatency: 0
+  m_vulkanVersion: 0
+  m_vulkanRequired: 0
+  m_vulkanCompileShaders: 0
+  m_vulkanEnableSPIRV: 0
+  m_vulkanEnableShaderCompiler: 0
+  m_vulkanEnableDebug: 0
+  m_vulkanEnableDebugMessenger: 0
+  m_vulkanEnableDebugCallback: 0
+  m_vulkanEnableValidationLayers: 0
+  m_vulkanEnableBestPracticesValidationLayers: 0
+  m_vulkanEnableGPUAssistedValidation: 0
+  m_vulkanEnableGPUAssistedValidationPipelineBarriers: 0
+  m_vulkanEnableGPUAssistedValidationObjectTracking: 0
+  m_vulkanEnableGPUAssistedValidationParameters: 0
+  m_vulkanEnableGPUAssistedValidationShaders: 0
+  m_vulkanEnableGPUAssistedValidationMemory: 0
+  m_vulkanEnableGPUAssistedValidationObjects: 0
+  m_vulkanEnableGPUAssistedValidationAll: 0
+  m_vulkanEnableGPUAssistedValidationNone: 0
+  m_vulkanEnableGPUAssistedValidationDefault: 0
+  m_linearCompressionThreshold: 0
+  m_colorSpace: 0
+  m_useHDRDisplay: 0
+  m_enableSRGBBatching: 0
+  m_allowLODCrossFade: 0
+  m_legacyLightProbeProxyVolume: 0
+  m_legacyTerrainDetail: 0
+  m_xRSettings: {fileID: 0}
+  m_XRSettings: {fileID: 0}
+  m_clusteredInputEnabled: 0
+  m_inputManager: {fileID: 0}
+  m_activeInputHandler: 0
+  m_defaultInputActions: {fileID: 0}
+  m_nativePluginConfig:
+  - {fileID: 0}
+  m_nativePluginImmutable: false
+  m_renderingPath: 0
+  m_renderingPathAndroid: 1
+  m_frameBufferWriteMask: 0
+  m_layerNames:
+  - Default
+  - TransparentFX
+  - Ignore Raycast
+  - Water
+  - UI
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  m_tagNames:
+  - Untagged
+  - Respawn
+  - Finish
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  m_sortingLayers: []
+  m_preserveIndexedVertexData: 0
+  m_preserveVertexAttributes: 0
+  m_batchingMode: 1
+  m_cameraDefaultClearFlags: 1
+  m_cameraDefaultBackgroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 1}
+  m_preloadedAssets: []
+  m_buildOptions: 0
+  m_accelerometerEnabled: 1
+  m_locationServiceEnabled: 0
+  m_accelerometerFrequency: 50
+  m_disableAssemblyVerification: 0
+  m_acceptExternalModificationsToPlayerSettings: 0
+  m_acceptExternalModificationsToEditorSettings: 0
+  m_acceptExternalModificationsToBuildSettings: 0
+  m_audioEngineUpdateQuantum: 0
+  m_audioDriverType: 0
+  m_audioSpeakerMode: 2
+  m_audioOutput: -1
+  m_audioBufferSize: 0
+  m_audioNumBuffers: 0
+  m_audioLatency: 0
+  m_audioSampleRate: 0
+  m_audioDSPBufferSize: 0
+  m_audioNumDSPBuffers: 0
+  m_audioDSPLatency: 0
+  m_linearCompressionThreshold: 0
+  m_colorSpace: 0
+  m_useHDRDisplay: 0
+  m_enableSRGBBatching: 0
+  m_allowLODCrossFade: 0
+  m_legacyLightProbeProxyVolume: 0
+  m_legacyTerrainDetail: 0
+  m_clusteredInputEnabled: 0
+  m_inputManager: {fileID: 0}
+  m_activeInputHandler: 0
+  m_defaultInputActions: {fileID: 0}
+  m_vulkanVersion: 0
+  m_vulkanRequired: 0
+  m_vulkanCompileShaders: 0
+  m_vulkanEnableSPIRV: 0
+  m_vulkanEnableShaderCompiler: 0
+  m_vulkanEnableDebug: 0
+  m_vulkanEnableDebugMessenger: 0
+  m_vulkanEnableDebugCallback: 0
+  m_vulkanEnableValidationLayers: 0
+  m_vulkanEnableBestPracticesValidationLayers: 0
+  m_vulkanEnableGPUAssistedValidation: 0
+  m_vulkanEnableGPUAssistedValidationPipelineBarriers: 0
+  m_vulkanEnableGPUAssistedValidationObjectTracking: 0
+  m_vulkanEnableGPUAssistedValidationParameters: 0
+  m_vulkanEnableGPUAssistedValidationShaders: 0
+  m_vulkanEnableGPUAssistedValidationMemory: 0
+  m_vulkanEnableGPUAssistedValidationObjects: 0
+  m_vulkanEnableGPUAssistedValidationAll: 0
+  m_vulkanEnableGPUAssistedValidationNone: 0
+  m_vulkanEnableGPUAssistedValidationDefault: 0
+  m_nativePluginConfig:
+  - {fileID: 0}
+  m_nativePluginImmutable: false
