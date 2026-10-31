@@ -1,8 +1,8 @@
-"""Clawd / one evening: original 25-second pixel film, synthesized stereo audio.
+"""Clawd / one evening: 40-second voiced pixel film, synthesized stereo audio.
 Run from any directory: python tools/make_video.py
 """
 from pathlib import Path
-import math, subprocess, wave
+import math, subprocess, wave, textwrap, json
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import imageio_ffmpeg
@@ -10,6 +10,26 @@ ROOT=Path(__file__).resolve().parents[1]; OUT=ROOT/'exports'; OUT.mkdir(exist_ok
 W,H,FPS,SR=360,640,30,44100
 F={s:ImageFont.truetype(str(ROOT/'assets/PressStart2P-Regular.ttf'),s) for s in [6,7,8,9,10,11,12,14,16,18,20,22,24]}
 BG='#141727'; CREAM='#f4e6cc'; ORANGE='#d77757'; GREEN='#b5d5a0'; RED='#ed7375'; BLUE='#8f9dc4'
+# Each voice clip has its own interval; long Clawd delivery has a seven-second slot.
+DIALOGUE=[
+ (.4,'01-programmer.wav','ПРОГРАММИСТ','Клод, допишем проект и спать. Там всего одна кнопка!'),
+ (4.2,'02-clawd.wav','КЛОД','Одна кнопка? Отлично. Я уже переписываю весь сайт.'),
+ (9.6,'03-programmer.wav','ПРОГРАММИСТ','Какой ещё лимит? Мы же только начали!'),
+ (13.,'04-clawd.wav','КЛОД','Можно купить подписку. Надежда станет дороже.'),
+ (18.,'05-programmer.wav','ПРОГРАММИСТ','Оплачено! Теперь-то точно успеем до утра.'),
+ (22.,'06-clawd.wav','КЛОД','Конечно! Добавим ещё чат, магазин... Ой. Снова лимит.'),
+ (30.,'07-programmer.wav','ПРОГРАММИСТ','Я купил подписку, а не абонемент на ожидание!'),
+ (34.5,'08-clawd.wav','КЛОД','Подписка есть. Безлимита нет. Пойдём спать.'),
+]
+CLIPS=[]
+for start,name,speaker,words in DIALOGUE:
+ with wave.open(str(ROOT/'assets/voices'/name)) as wf:
+  duration=wf.getnframes()/wf.getframerate()
+ CLIPS.append((start,start+duration,name,speaker,words))
+for i,clip in enumerate(CLIPS):
+ assert clip[1]<=40
+ if i:assert CLIPS[i-1][1]<clip[0], 'Overlapping dialogue'
+SPEAKER=None
 # Exact official block-glyph silhouette, rendered with terminal cell aspect 1:2.
 GLYPHS={' ':['00','00'],'▐':['01','01'],'▛':['11','10'],'█':['11','11'],'▜':['11','01'],'▌':['10','10'],'▝':['01','00'],'▘':['10','00']}
 ROWS=[' ▐▛███▜▌ ','▝▜█████▛▘','  ▘▘ ▝▝  ']
@@ -51,6 +71,7 @@ def person(x,y,t,typing=True,shock=False):
  for dx in [-6,14]:box((x+dx,y+12,x+dx+4,y+18),'#292538')
  if shock:box((x+4,y+27,x+11,y+35),'#67404a')
  else:box((x+2,y+28,x+12,y+30),'#67404a')
+ if SPEAKER=='ПРОГРАММИСТ':box((x+2,y+27,x+12,y+30+int(t*15)%5),'#67404a')
  arm=round(math.sin(t*32)*2) if typing else 0
  box((x+24,y+49,x+41,y+59),'#7788b5');box((x+35,y+53+arm,x+49,y+62+arm),'#e7b395')
  box((x-15,y+53,x-7,y+66),'#e7b395')
@@ -86,7 +107,11 @@ def room(t,act):
  label('ПРОГРАММИСТ',88,514,6,BLUE,True);label('CLAWD',287,501,7,ORANGE,True)
 
 def frame(t):
- global d
+ global d,SPEAKER
+ actual=t
+ active=next((clip for clip in CLIPS if clip[0]<=actual<clip[1]),None)
+ SPEAKER=active[3] if active else None
+ t=float(np.interp(actual,[0,9.5,13,18,27,34,40],[0,4,7,11,16,21,25]))
  act=0 if t<4 else 1 if t<7 else 2 if t<11 else 3 if t<16 else 4 if t<21 else 5
  im=Image.new('RGB',(W,H),BG);d=ImageDraw.Draw(im)
  label('CLAUDE CODE',18,18,8,ORANGE);label('01 / ОДИН ВЕЧЕР',342,20,6,BLUE,True) if False else label('PIXEL FILM',262,20,7,BLUE)
@@ -94,20 +119,16 @@ def frame(t):
  centered(titles[act],57,12 if act in [1,4] else 14,RED if act in [1,4] else CREAM,24)
  box((18,121,342,123),'#41465e')
  room(t,act)
- if act==0:
-  speech(['Клод, сделай','одну мелочь.'],15,280,148)
-  speech(['Сейчас сделаю.'],190,334,151)
- elif act==1:
-  speech(['Уже?!'],23,284,94);speech(['Я на перерыв.'],192,340,150)
- elif act==2:
-  speech(['Это инвестиция!'],15,284,154)
- elif act==3:
-  speech(['Вот это скорость!'],15,282,164);speech(['Погнали!'],220,341,114)
+ if SPEAKER:
+  x,y,w=(15,287,164) if SPEAKER=='ПРОГРАММИСТ' else (214,342,130)
+  speech(['Говорит...' if SPEAKER=='ПРОГРАММИСТ' else 'Клод онлайн'],x,y,w)
+  # Moving audio bars make speaker identity visible while retaining Clawd's face.
+  bx,by=(24,322) if SPEAKER=='ПРОГРАММИСТ' else (314,399)
+  for bar in range(4):
+   height=3+round(abs(math.sin(actual*18+bar))*10)
+   box((bx+bar*5,by-height,bx+bar*5+2,by),GREEN if SPEAKER=='ПРОГРАММИСТ' else ORANGE)
+ if act==3:
   for i in range(6):spark(219+(i*23)%119,310+(int(t*40)+i*17)%95,GREEN)
- elif act==4:
-  speech(['Я же заплатил...'],15,282,163);speech(['А я устал.'],222,341,119)
- else:
-  speech(['Пойдём спать.'],15,282,142);speech(['Это я могу.'],211,341,129)
  # A story prop, not a permanent giant terminal overlay.
  if act in [1,4]:
   window(103,178,228,97,RED,'#2f2637');label('×  LIMIT REACHED',117,193,10,RED)
@@ -136,7 +157,11 @@ def frame(t):
  # cinematic caption strip
  box((0,534,360,640),'#101421')
  captions=[['ОДНА МЕЛОЧЬ.','ПОСЛЕДНИЙ ПРОМПТ. ЧЕСТНО.'],['НАПАРНИК УШЁЛ НА ПЕРЕРЫВ.','ТЕБЯ НЕ СПРОСИЛ.'],['КОШЕЛЁК: − ДЕНЬГИ','НАДЕЖДА: +100'],['КЛАВИАТУРА ГОРИТ.','ДЕДЛАЙН УЖЕ НЕ СТРАШЕН.'],['ЛИМИТ ВЕРНУЛСЯ.','ДЕНЬГИ — НЕТ.'],['КУПИЛ НЕ БЕЗЛИМИТ.','КУПИЛ НАДЕЖДУ.']]
- centered(captions[act],551,10,ORANGE if act==5 else CREAM,22)
+ if active:
+  label(active[3],180,541,7,ORANGE if SPEAKER=='КЛОД' else BLUE,True)
+  centered(textwrap.wrap(active[4],width=36),558,8,CREAM,15)
+ else:
+  centered(captions[act],551,10,ORANGE if act==5 else CREAM,22)
  label('*ШУТКА. НЕ УСЛОВИЯ ПОДПИСКИ.',180,602,6,BLUE,True)
  box((18,622,342,624),'#343b54');box((18,622,18+t/25*324,624),ORANGE)
  # brief camera shutter-style pixel transition between acts
@@ -147,7 +172,7 @@ def frame(t):
  return im
 
 # Entirely synthesized soundtrack: no downloaded music or sound samples.
-rng=np.random.default_rng(41); mix=np.zeros((25*SR,2),dtype=np.float64)
+rng=np.random.default_rng(41); mix=np.zeros((40*SR,2),dtype=np.float64)
 def synth(at,dur,hz=440,vol=.1,kind='pulse',pan=0,end=None):
  n=int(dur*SR);tt=np.arange(n)/SR
  if kind=='noise':sig=rng.uniform(-1,1,n)
@@ -164,45 +189,66 @@ def synth(at,dur,hz=440,vol=.1,kind='pulse',pan=0,end=None):
 def midi(n):return 440*2**((n-69)/12)
 # Original four-bar loop, quieter and minor/downward during limit scenes.
 mel=[72,76,79,76,74,71,67,71,69,72,76,72,67,71,74,71]
-for k in range(100):
- at=k*.25;sad=4<=at<7 or 16<=at<21
+for k in range(160):
+ at=k*.25;sad=9.5<=at<13 or 27<=at<34
  note=mel[k%16]-(3 if sad else 0)
  synth(at,.14,midi(note),.035 if not sad else .018,'tri',.45)
  if k%2==0:synth(at,.21,midi([48,45,41,43][k//8%4]),.055,'tri',-.25)
  if k%2==1:synth(at,.025,vol=.025,kind='noise',pan=.7)
  if k%4==0:synth(at,.10,95,.07,'sine',end=37)
 # Key switches, staggered stereo clicks in productive scenes.
-for start,stop in [(0,3.9),(11,15.9)]:
+for start,stop in [(0,9.3),(18,26.9)]:
  for at in np.arange(start+.1,stop,.105):
   synth(float(at),.027,float(rng.integers(600,1600)),.055,'noise',-.65)
   synth(float(at),.018,1800,.028,'pulse',-.55,end=650)
 # Mouse click; payment/coin cascade; upward start sound.
-for at in [7.4,9.15]:synth(at,.045,vol=.11,kind='noise',pan=-.4)
-for i,n in enumerate([76,83,88,95]):synth(9.25+i*.10,.17,midi(n),.12,'pulse',.2)
-for i,n in enumerate([60,64,67,72,76,79]):synth(11+i*.075,.16,midi(n),.10,'tri',.1)
+for at in [13.4,16.62]:synth(at,.045,vol=.11,kind='noise',pan=-.4)
+for i,n in enumerate([76,83,88,95]):synth(16.75+i*.10,.17,midi(n),.12,'pulse',.2)
+for i,n in enumerate([60,64,67,72,76,79]):synth(18+i*.075,.16,midi(n),.10,'tri',.1)
 # Double warning and power-down, timed exactly to both limit reveals.
-for at in [4,16]:
+for at in [9.5,27]:
  for off in [0,.20]:synth(at+off,.14,740,.14,'pulse',.45)
  synth(at+.45,.60,440,.13,'pulse',.4,end=65)
 # Terminal completion and sleepy descending ending.
-for i,n in enumerate([72,67,64,60]):synth(21.2+i*.22,.29,midi(n),.10,'tri',.25)
+for i,n in enumerate([72,67,64,60]):synth(34.1+i*.22,.29,midi(n),.10,'tri',.25)
 # Small synthetic snore (not a voice sample).
-for at in [22.4,23.5]:
+for at in [39.0]:
  synth(at,.45,65,.065,'tri',.55,end=95);synth(at+.46,.23,90,.045,'tri',.55,end=45)
+# Duck background under speech, then mix generated voices with gentle stereo placement.
+duck=np.ones(len(mix))
+for start,end,name,speaker,words in CLIPS:
+ lo=max(0,int((start-.1)*SR));a=int(start*SR);b=int(end*SR);hi=min(len(mix),int((end+.2)*SR))
+ duck[lo:a]=np.minimum(duck[lo:a],np.linspace(1,.23,a-lo))
+ duck[a:b]=np.minimum(duck[a:b],.23)
+ duck[b:hi]=np.minimum(duck[b:hi],np.linspace(.23,1,hi-b))
+mix*=duck[:,None]
+ff=imageio_ffmpeg.get_ffmpeg_exe()
+for start,end,name,speaker,words in CLIPS:
+ result=subprocess.run([ff,'-v','error','-i',str(ROOT/'assets/voices'/name),'-f','f32le','-ac','1','-ar',str(SR),'-'],capture_output=True,check=True)
+ voice=np.frombuffer(result.stdout,dtype='<f4').astype(np.float64)
+ # Peak normalization with cap; no dialogue overlaps or speed changes.
+ peak=np.max(np.abs(voice));voice*=min(2.5,.73/max(peak,1e-6))
+ edge=min(220,len(voice)//2);voice[:edge]*=np.linspace(0,1,edge);voice[-edge:]*=np.linspace(1,0,edge)
+ i=int(start*SR);n=min(len(voice),len(mix)-i);pan=-.10 if speaker=='ПРОГРАММИСТ' else .10
+ mix[i:i+n,0]+=voice[:n]*(1-pan);mix[i:i+n,1]+=voice[:n]*(1+pan)
 mix*=np.minimum(np.arange(len(mix))/(SR*.05),1)[:,None]
-mix*=np.minimum((len(mix)-np.arange(len(mix)))/(SR*.7),1)[:,None]
-mix=np.tanh(mix*1.7)*.90
+mix*=np.minimum((len(mix)-np.arange(len(mix)))/(SR*.5),1)[:,None]
+mix=np.tanh(mix*1.2)*.93
 wav=OUT/'soundtrack.wav'
 with wave.open(str(wav),'wb') as f:
  f.setnchannels(2);f.setsampwidth(2);f.setframerate(SR);f.writeframes((mix*32767).astype('<i2').tobytes())
-ff=imageio_ffmpeg.get_ffmpeg_exe();dest=OUT/'claude-code-pixel-25s.mp4'
-cmd=[ff,'-y','-f','rawvideo','-pix_fmt','rgb24','-s','360x640','-r','30','-i','-','-i',str(wav),'-vf','scale=720:1280:flags=neighbor','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t','25','-movflags','+faststart',str(dest)]
+def stamp(t):
+ ms=round(t*1000);return f'{ms//3600000:02}:{ms//60000%60:02}:{ms//1000%60:02},{ms%1000:03}'
+(OUT/'dialogue-40s.srt').write_text('\n\n'.join(f'{i+1}\n{stamp(a)} --> {stamp(b)}\n{speaker}: {words}' for i,(a,b,_,speaker,words) in enumerate(CLIPS))+'\n')
+(OUT/'dialogue-40s.json').write_text(json.dumps([dict(start=a,end=b,file=name,speaker=speaker,text=words) for a,b,name,speaker,words in CLIPS],ensure_ascii=False,indent=2)+'\n')
+dest=OUT/'claude-code-pixel-40s-voiced.mp4'
+cmd=[ff,'-y','-f','rawvideo','-pix_fmt','rgb24','-s','360x640','-r','30','-i','-','-i',str(wav),'-vf','scale=720:1280:flags=neighbor','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t','40','-movflags','+faststart',str(dest)]
 p=subprocess.Popen(cmd,stdin=subprocess.PIPE,stderr=subprocess.DEVNULL)
-for i in range(750):
+for i in range(1200):
  im=frame(i/30)
- if i==390:im.resize((720,1280),Image.Resampling.NEAREST).save(OUT/'preview.png')
+ if i==705:im.resize((720,1280),Image.Resampling.NEAREST).save(OUT/'preview-40s.png')
  p.stdin.write(im.tobytes())
 p.stdin.close()
 if p.wait():raise RuntimeError('Encoding failed')
-subprocess.run([ff,'-y','-i',str(wav),'-c:a','libmp3lame','-b:a','192k',str(OUT/'pixel-sounds.mp3')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+subprocess.run([ff,'-y','-i',str(wav),'-c:a','libmp3lame','-b:a','192k',str(OUT/'soundtrack-40s-voiced.mp3')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 print(dest)
