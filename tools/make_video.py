@@ -75,7 +75,7 @@ def person(x,y,t,typing=True,shock=False):
  arm=round(math.sin(t*32)*2) if typing else 0
  box((x+24,y+49,x+41,y+59),'#7788b5');box((x+35,y+53+arm,x+49,y+62+arm),'#e7b395')
  box((x-15,y+53,x-7,y+66),'#e7b395')
-def room(t,act):
+def room(t,act,sleep=None):
  # wall, framed poster, window with rainy city, desk and foreground floor
  box((0,139,360,529),'#22273c');box((0,139,360,145),'#343b54')
  for y in [190,260,330,400]:box((0,y,360,y),'#292e45')
@@ -103,7 +103,7 @@ def room(t,act):
  box((120,423,187,426),'#757b91');box((51,412,64,426),CREAM);box((63,415,68,421),CREAM)
  for i in range(3):box((55+i*3,400-round((t*10+i*6)%9),56+i*3,403-round((t*10+i*6)%9)),'#6c6872')
  # Clawd on the floor next to programmer, exact reference silhouette
- box((242,488,334,492),'#101522');clawd(242,415,t,5,asleep=act in [1,4,5])
+ box((242,488,334,492),'#101522');clawd(242,415,t,5,asleep=act in [1,4,5] if sleep is None else sleep)
  label('ПРОГРАММИСТ',88,514,6,BLUE,True);label('CLAWD',287,501,7,ORANGE,True)
 
 def frame(t):
@@ -171,84 +171,85 @@ def frame(t):
    for y in range(0,H,16):box((0,y,W,y+int((1-dt/.12)*14)),BG)
  return im
 
-# Entirely synthesized soundtrack: no downloaded music or sound samples.
-rng=np.random.default_rng(41); mix=np.zeros((40*SR,2),dtype=np.float64)
-def synth(at,dur,hz=440,vol=.1,kind='pulse',pan=0,end=None):
- n=int(dur*SR);tt=np.arange(n)/SR
- if kind=='noise':sig=rng.uniform(-1,1,n)
- else:
-  f=np.linspace(hz,end if end is not None else hz,n);phase=np.cumsum(f)/SR
-  if kind=='sine':sig=np.sin(2*np.pi*phase)
-  elif kind=='tri':sig=2*np.abs(2*(phase%1)-1)-1
-  else:sig=np.where(phase%1<.25,1.,-.333)
- env=np.minimum(tt/.004,1)*np.minimum((dur-tt)/.035,1)
- if kind=='noise':env*=np.exp(-tt*25)
- sig*=env*vol;i=round(at*SR);n=min(n,len(mix)-i)
- if n>0:
-  mix[i:i+n,0]+=sig[:n]*(1-pan*.6);mix[i:i+n,1]+=sig[:n]*(1+pan*.6)
-def midi(n):return 440*2**((n-69)/12)
-# Original four-bar loop, quieter and minor/downward during limit scenes.
-mel=[72,76,79,76,74,71,67,71,69,72,76,72,67,71,74,71]
-for k in range(160):
- at=k*.25;sad=9.5<=at<13 or 27<=at<34
- note=mel[k%16]-(3 if sad else 0)
- synth(at,.14,midi(note),.035 if not sad else .018,'tri',.45)
- if k%2==0:synth(at,.21,midi([48,45,41,43][k//8%4]),.055,'tri',-.25)
- if k%2==1:synth(at,.025,vol=.025,kind='noise',pan=.7)
- if k%4==0:synth(at,.10,95,.07,'sine',end=37)
-# Key switches, staggered stereo clicks in productive scenes.
-for start,stop in [(0,9.3),(18,26.9)]:
- for at in np.arange(start+.1,stop,.105):
-  synth(float(at),.027,float(rng.integers(600,1600)),.055,'noise',-.65)
-  synth(float(at),.018,1800,.028,'pulse',-.55,end=650)
-# Mouse click; payment/coin cascade; upward start sound.
-for at in [13.4,16.62]:synth(at,.045,vol=.11,kind='noise',pan=-.4)
-for i,n in enumerate([76,83,88,95]):synth(16.75+i*.10,.17,midi(n),.12,'pulse',.2)
-for i,n in enumerate([60,64,67,72,76,79]):synth(18+i*.075,.16,midi(n),.10,'tri',.1)
-# Double warning and power-down, timed exactly to both limit reveals.
-for at in [9.5,27]:
- for off in [0,.20]:synth(at+off,.14,740,.14,'pulse',.45)
- synth(at+.45,.60,440,.13,'pulse',.4,end=65)
-# Terminal completion and sleepy descending ending.
-for i,n in enumerate([72,67,64,60]):synth(34.1+i*.22,.29,midi(n),.10,'tri',.25)
-# Small synthetic snore (not a voice sample).
-for at in [39.0]:
- synth(at,.45,65,.065,'tri',.55,end=95);synth(at+.46,.23,90,.045,'tri',.55,end=45)
-# Duck background under speech, then mix generated voices with gentle stereo placement.
-duck=np.ones(len(mix))
-for start,end,name,speaker,words in CLIPS:
- lo=max(0,int((start-.1)*SR));a=int(start*SR);b=int(end*SR);hi=min(len(mix),int((end+.2)*SR))
- duck[lo:a]=np.minimum(duck[lo:a],np.linspace(1,.23,a-lo))
- duck[a:b]=np.minimum(duck[a:b],.23)
- duck[b:hi]=np.minimum(duck[b:hi],np.linspace(.23,1,hi-b))
-mix*=duck[:,None]
-ff=imageio_ffmpeg.get_ffmpeg_exe()
-for start,end,name,speaker,words in CLIPS:
- result=subprocess.run([ff,'-v','error','-i',str(ROOT/'assets/voices'/name),'-f','f32le','-ac','1','-ar',str(SR),'-'],capture_output=True,check=True)
- voice=np.frombuffer(result.stdout,dtype='<f4').astype(np.float64)
- # Peak normalization with cap; no dialogue overlaps or speed changes.
- peak=np.max(np.abs(voice));voice*=min(2.5,.73/max(peak,1e-6))
- edge=min(220,len(voice)//2);voice[:edge]*=np.linspace(0,1,edge);voice[-edge:]*=np.linspace(1,0,edge)
- i=int(start*SR);n=min(len(voice),len(mix)-i);pan=-.10 if speaker=='ПРОГРАММИСТ' else .10
- mix[i:i+n,0]+=voice[:n]*(1-pan);mix[i:i+n,1]+=voice[:n]*(1+pan)
-mix*=np.minimum(np.arange(len(mix))/(SR*.05),1)[:,None]
-mix*=np.minimum((len(mix)-np.arange(len(mix)))/(SR*.5),1)[:,None]
-mix=np.tanh(mix*1.2)*.93
-wav=OUT/'soundtrack.wav'
-with wave.open(str(wav),'wb') as f:
- f.setnchannels(2);f.setsampwidth(2);f.setframerate(SR);f.writeframes((mix*32767).astype('<i2').tobytes())
-def stamp(t):
- ms=round(t*1000);return f'{ms//3600000:02}:{ms//60000%60:02}:{ms//1000%60:02},{ms%1000:03}'
-(OUT/'dialogue-40s.srt').write_text('\n\n'.join(f'{i+1}\n{stamp(a)} --> {stamp(b)}\n{speaker}: {words}' for i,(a,b,_,speaker,words) in enumerate(CLIPS))+'\n')
-(OUT/'dialogue-40s.json').write_text(json.dumps([dict(start=a,end=b,file=name,speaker=speaker,text=words) for a,b,name,speaker,words in CLIPS],ensure_ascii=False,indent=2)+'\n')
-dest=OUT/'claude-code-pixel-40s-voiced.mp4'
-cmd=[ff,'-y','-f','rawvideo','-pix_fmt','rgb24','-s','360x640','-r','30','-i','-','-i',str(wav),'-vf','scale=720:1280:flags=neighbor','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t','40','-movflags','+faststart',str(dest)]
-p=subprocess.Popen(cmd,stdin=subprocess.PIPE,stderr=subprocess.DEVNULL)
-for i in range(1200):
- im=frame(i/30)
- if i==705:im.resize((720,1280),Image.Resampling.NEAREST).save(OUT/'preview-40s.png')
- p.stdin.write(im.tobytes())
-p.stdin.close()
-if p.wait():raise RuntimeError('Encoding failed')
-subprocess.run([ff,'-y','-i',str(wav),'-c:a','libmp3lame','-b:a','192k',str(OUT/'soundtrack-40s-voiced.mp3')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-print(dest)
+if __name__ == '__main__':
+ # Entirely synthesized soundtrack: no downloaded music or sound samples.
+ rng=np.random.default_rng(41); mix=np.zeros((40*SR,2),dtype=np.float64)
+ def synth(at,dur,hz=440,vol=.1,kind='pulse',pan=0,end=None):
+  n=int(dur*SR);tt=np.arange(n)/SR
+  if kind=='noise':sig=rng.uniform(-1,1,n)
+  else:
+   f=np.linspace(hz,end if end is not None else hz,n);phase=np.cumsum(f)/SR
+   if kind=='sine':sig=np.sin(2*np.pi*phase)
+   elif kind=='tri':sig=2*np.abs(2*(phase%1)-1)-1
+   else:sig=np.where(phase%1<.25,1.,-.333)
+  env=np.minimum(tt/.004,1)*np.minimum((dur-tt)/.035,1)
+  if kind=='noise':env*=np.exp(-tt*25)
+  sig*=env*vol;i=round(at*SR);n=min(n,len(mix)-i)
+  if n>0:
+   mix[i:i+n,0]+=sig[:n]*(1-pan*.6);mix[i:i+n,1]+=sig[:n]*(1+pan*.6)
+ def midi(n):return 440*2**((n-69)/12)
+ # Original four-bar loop, quieter and minor/downward during limit scenes.
+ mel=[72,76,79,76,74,71,67,71,69,72,76,72,67,71,74,71]
+ for k in range(160):
+  at=k*.25;sad=9.5<=at<13 or 27<=at<34
+  note=mel[k%16]-(3 if sad else 0)
+  synth(at,.14,midi(note),.035 if not sad else .018,'tri',.45)
+  if k%2==0:synth(at,.21,midi([48,45,41,43][k//8%4]),.055,'tri',-.25)
+  if k%2==1:synth(at,.025,vol=.025,kind='noise',pan=.7)
+  if k%4==0:synth(at,.10,95,.07,'sine',end=37)
+ # Key switches, staggered stereo clicks in productive scenes.
+ for start,stop in [(0,9.3),(18,26.9)]:
+  for at in np.arange(start+.1,stop,.105):
+   synth(float(at),.027,float(rng.integers(600,1600)),.055,'noise',-.65)
+   synth(float(at),.018,1800,.028,'pulse',-.55,end=650)
+ # Mouse click; payment/coin cascade; upward start sound.
+ for at in [13.4,16.62]:synth(at,.045,vol=.11,kind='noise',pan=-.4)
+ for i,n in enumerate([76,83,88,95]):synth(16.75+i*.10,.17,midi(n),.12,'pulse',.2)
+ for i,n in enumerate([60,64,67,72,76,79]):synth(18+i*.075,.16,midi(n),.10,'tri',.1)
+ # Double warning and power-down, timed exactly to both limit reveals.
+ for at in [9.5,27]:
+  for off in [0,.20]:synth(at+off,.14,740,.14,'pulse',.45)
+  synth(at+.45,.60,440,.13,'pulse',.4,end=65)
+ # Terminal completion and sleepy descending ending.
+ for i,n in enumerate([72,67,64,60]):synth(34.1+i*.22,.29,midi(n),.10,'tri',.25)
+ # Small synthetic snore (not a voice sample).
+ for at in [39.0]:
+  synth(at,.45,65,.065,'tri',.55,end=95);synth(at+.46,.23,90,.045,'tri',.55,end=45)
+ # Duck background under speech, then mix generated voices with gentle stereo placement.
+ duck=np.ones(len(mix))
+ for start,end,name,speaker,words in CLIPS:
+  lo=max(0,int((start-.1)*SR));a=int(start*SR);b=int(end*SR);hi=min(len(mix),int((end+.2)*SR))
+  duck[lo:a]=np.minimum(duck[lo:a],np.linspace(1,.23,a-lo))
+  duck[a:b]=np.minimum(duck[a:b],.23)
+  duck[b:hi]=np.minimum(duck[b:hi],np.linspace(.23,1,hi-b))
+ mix*=duck[:,None]
+ ff=imageio_ffmpeg.get_ffmpeg_exe()
+ for start,end,name,speaker,words in CLIPS:
+  result=subprocess.run([ff,'-v','error','-i',str(ROOT/'assets/voices'/name),'-f','f32le','-ac','1','-ar',str(SR),'-'],capture_output=True,check=True)
+  voice=np.frombuffer(result.stdout,dtype='<f4').astype(np.float64)
+  # Peak normalization with cap; no dialogue overlaps or speed changes.
+  peak=np.max(np.abs(voice));voice*=min(2.5,.73/max(peak,1e-6))
+  edge=min(220,len(voice)//2);voice[:edge]*=np.linspace(0,1,edge);voice[-edge:]*=np.linspace(1,0,edge)
+  i=int(start*SR);n=min(len(voice),len(mix)-i);pan=-.10 if speaker=='ПРОГРАММИСТ' else .10
+  mix[i:i+n,0]+=voice[:n]*(1-pan);mix[i:i+n,1]+=voice[:n]*(1+pan)
+ mix*=np.minimum(np.arange(len(mix))/(SR*.05),1)[:,None]
+ mix*=np.minimum((len(mix)-np.arange(len(mix)))/(SR*.5),1)[:,None]
+ mix=np.tanh(mix*1.2)*.93
+ wav=OUT/'soundtrack.wav'
+ with wave.open(str(wav),'wb') as f:
+  f.setnchannels(2);f.setsampwidth(2);f.setframerate(SR);f.writeframes((mix*32767).astype('<i2').tobytes())
+ def stamp(t):
+  ms=round(t*1000);return f'{ms//3600000:02}:{ms//60000%60:02}:{ms//1000%60:02},{ms%1000:03}'
+ (OUT/'dialogue-40s.srt').write_text('\n\n'.join(f'{i+1}\n{stamp(a)} --> {stamp(b)}\n{speaker}: {words}' for i,(a,b,_,speaker,words) in enumerate(CLIPS))+'\n')
+ (OUT/'dialogue-40s.json').write_text(json.dumps([dict(start=a,end=b,file=name,speaker=speaker,text=words) for a,b,name,speaker,words in CLIPS],ensure_ascii=False,indent=2)+'\n')
+ dest=OUT/'claude-code-pixel-40s-voiced.mp4'
+ cmd=[ff,'-y','-f','rawvideo','-pix_fmt','rgb24','-s','360x640','-r','30','-i','-','-i',str(wav),'-vf','scale=720:1280:flags=neighbor','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','192k','-t','40','-movflags','+faststart',str(dest)]
+ p=subprocess.Popen(cmd,stdin=subprocess.PIPE,stderr=subprocess.DEVNULL)
+ for i in range(1200):
+  im=frame(i/30)
+  if i==705:im.resize((720,1280),Image.Resampling.NEAREST).save(OUT/'preview-40s.png')
+  p.stdin.write(im.tobytes())
+ p.stdin.close()
+ if p.wait():raise RuntimeError('Encoding failed')
+ subprocess.run([ff,'-y','-i',str(wav),'-c:a','libmp3lame','-b:a','192k',str(OUT/'soundtrack-40s-voiced.mp3')],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ print(dest)
