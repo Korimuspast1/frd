@@ -1,0 +1,17 @@
+Reference: official @anthropic-ai/claude-code npm package, version 2.0.31
+https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.0.31
+Registry: https://registry.npmjs.org/@anthropic-ai/claude-code/2.0.31
+Public repository: https://github.com/anthropics/claude-code
+
+The default terminal mascot is constructed from these Unicode block glyphs:
+ ▐▛███▜▌
+▝▜█████▛▘
+  ▘▘ ▝▝
+
+Foreground clawd_body: rgb(215,119,87), #d77757
+Background clawd_background: rgb(0,0,0)
+The film rasterizes these glyphs into a pixel mask, rather than inventing
+another character. The silhouette, eyes/negative space, four legs and
+body colour are preserved. Terminal glyph aspect ratio is 1:2.
+No CLI executable or source code is redistributed.
+Claude/Clawd belong to their respective owners. Unofficial humorous animation.
