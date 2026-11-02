@@ -326,7 +326,7 @@ def prepare_audio(reveal_index=7,final_index=9):
 y=np.arange(1280)[:,None];alpha=np.clip((y-860)/340,0,1)*245
 VIGNETTE=Image.fromarray(np.tile(alpha.astype('uint8'),(1,720)))
 DARK=Image.new('RGB',(720,1280),'#151421')
-def caption(t,sec):
+def caption(t,sec,keywords=None):
  group=next((g for g in sec['groups'] if g[0]['start']<=t<g[-1]['end']),None)
  if not group:return
  # Wrap using measured font widths, retaining individual word coloring.
@@ -342,7 +342,7 @@ def caption(t,sec):
  for i,ln in enumerate(lines):
   width=sum(tw(w['word'],size) for w in ln)+tw(' ',size)*(len(ln)-1);x=(360-width)/2
   for w in ln:
-   word=w['word'];key=bool(re.search(r'\d|цент|монет|миллион|Супермен|журнал|комикс|марка|самолёт|ошибк|сил|нагруз|отдых|сон|восстанов|мышц|трениров',word,re.I));bad=bool(re.search('мусор|выброс|нет|нечаянно',word,re.I))
+   word=w['word'];key=bool(re.search(keywords or r'\d|цент|монет|миллион|Супермен|журнал|комикс|марка|самолёт|ошибк|сил|нагруз|отдых|сон|восстанов|мышц|трениров',word,re.I));bad=bool(re.search('мусор|выброс|нет|нечаянно',word,re.I))
    color='#9c94a4' if t>=w['end'] else (RED if bad else GOLD if key else '#fff7ec')
    txt(word,x,513+i*29,size,color)
    if w['start']<=t<w['end']:rr((x,540+i*29,x+tw(word,size),542+i*29),GOLD,1)
