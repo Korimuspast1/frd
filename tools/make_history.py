@@ -260,7 +260,7 @@ def make_scene(kind,t,sec,local,progress):
 
 # Prepare narration at an energetic pace, and derive caption timing from syllabic
 # weights on a voice-activity timeline. Frame-level word cues are saved for editing.
-def prepare_audio():
+def prepare_audio(reveal_index=7,final_index=9):
  sections=[];cursor=.2
  for i,section in enumerate(STORY['sections']):
   raw=subprocess.run([FF,'-v','error','-i',str(AS/'voice'/f'{i+1:02}.wav'),'-af',f"atempo={STORY['speed']}",'-f','f32le','-ac','1','-ar',str(SR),'-'],capture_output=True,check=True)
@@ -298,7 +298,7 @@ def prepare_audio():
   if n>0:mix[a:a+n,0]+=v[:n]*(1-pan*.4);mix[a:a+n,1]+=v[:n]*(1+pan*.4)
  # Original restrained instrumental ostinato, darker before the auction reveal.
  for k in range(int(duration/.3)):
-  at=k*.3;note=[57,60,64,67,64,60,55,59][k%8];amp=.016 if at<sections[7]['start'] else .024
+  at=k*.3;note=[57,60,64,67,64,60,55,59][k%8];amp=.016 if at<sections[reveal_index]['start'] else .024
   tone(at,.22,440*2**((note-69)/12),amp,'tri',pan=.45)
   if k%2==0:tone(at,.28,110 if k//8%2==0 else 82.4,.022,'sine',pan=-.3)
   if k%4==0:tone(at,.14,70,.022,'sine',end=35)
@@ -308,9 +308,9 @@ def prepare_audio():
  for ix in [1,2]:
   for off,f in [(.2,790),(.31,1180)]:tone(sections[ix]['start']+off,.12,f,.065,'tri')
  for at in [sections[4]['start']+5,sections[5]['start']+7]:tone(at,.14,vol=.09,kind='noise');tone(at,.16,85,.06,end=40)
- for i,f in enumerate([660,830,990,1320]):tone(sections[7]['start']+4+i*.12,.21,f,.075,'tri')
- tone(sections[7]['start']+.1,.17,65,.12,end=38)
- for i,f in enumerate([330,392,494]):tone(sections[9]['end']-.8+i*.15,.9,f,.045,'tri')
+ for i,f in enumerate([660,830,990,1320]):tone(sections[reveal_index]['start']+4+i*.12,.21,f,.075,'tri')
+ tone(sections[reveal_index]['start']+.1,.17,65,.12,end=38)
+ for i,f in enumerate([330,392,494]):tone(sections[final_index]['end']-.8+i*.15,.9,f,.045,'tri')
  # Narrator dominates the mix; music never competes with dialogue.
  for sec in sections:
   v=sec['audio'];a=int(sec['start']*SR);n=min(len(v),len(mix)-a)
@@ -342,7 +342,7 @@ def caption(t,sec):
  for i,ln in enumerate(lines):
   width=sum(tw(w['word'],size) for w in ln)+tw(' ',size)*(len(ln)-1);x=(360-width)/2
   for w in ln:
-   word=w['word'];key=bool(re.search(r'\d|цент|монет|миллион|Супермен|журнал|комикс|марка|самолёт|ошибк',word,re.I));bad=bool(re.search('мусор|выброс|нет|нечаянно',word,re.I))
+   word=w['word'];key=bool(re.search(r'\d|цент|монет|миллион|Супермен|журнал|комикс|марка|самолёт|ошибк|сил|нагруз|отдых|сон|восстанов|мышц|трениров',word,re.I));bad=bool(re.search('мусор|выброс|нет|нечаянно',word,re.I))
    color='#9c94a4' if t>=w['end'] else (RED if bad else GOLD if key else '#fff7ec')
    txt(word,x,513+i*29,size,color)
    if w['start']<=t<w['end']:rr((x,540+i*29,x+tw(word,size),542+i*29),GOLD,1)
