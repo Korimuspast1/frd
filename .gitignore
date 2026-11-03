@@ -6,3 +6,5 @@ exports/*.rgb
 exports/**/*.wav
 exports/**/encode.log
 exports/**/frame-*.png
+assets/survival/voice/*.wav
+exports/survival/chapters/
