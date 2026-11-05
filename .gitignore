@@ -1,0 +1,9 @@
+node_modules/
+opencode-android/node_modules/
+opencode-android/dist-web/
+opencode-android/android/build/
+opencode-android/android/app/build/
+opencode-android/android/.gradle/
+opencode-android/.workspaces-dev/
+*.keystore.tmp
+.DS_Store

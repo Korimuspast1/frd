@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Authentic OpenCode Geometric Mark centered in 108dp safe zone -->
+    <path
+        android:fillColor="#57514F"
+        android:pathData="M66,69H42V49H66V69Z" />
+    <path
+        android:fillColor="#DCDE8D"
+        android:pathData="M66,39H42V69H66V39ZM78,79H30V29H78V79Z" />
+</vector>

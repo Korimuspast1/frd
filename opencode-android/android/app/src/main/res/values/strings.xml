@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OpenCode</string>
+    <string name="daemon_channel_name">OpenCode Background Service</string>
+    <string name="daemon_notification_title">OpenCode Daemon</string>
+    <string name="daemon_notification_idle">Фоновый сервис активен • Локальная среда готова</string>
+</resources>
