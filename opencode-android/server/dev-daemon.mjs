@@ -1,606 +1,655 @@
-import http from 'node:http';
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+#!/usr/bin/env node
+/**
+ * OpenCode Android v2.2.5 — Live Preview & Local Reference Server
+ * Serves the literal compiled upstream `anomalyco/opencode` (`@opencode/app`) UI
+ * backed by `OpenCodeV2Engine` (100% OpenCode v2.2.5 HTTP + SSE + Persistent PTY WebSocket).
+ */
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT_DIR = path.resolve(__dirname, '..');
-const REPO_ROOT = path.resolve(ROOT_DIR, '..');
-const WWW_DIR = path.join(ROOT_DIR, 'android/app/src/main/assets/www');
-const WORKSPACES_DIR = path.join(ROOT_DIR, '.workspaces-dev');
-const SNAPSHOTS_DIR = path.join(WORKSPACES_DIR, '.snapshots');
-const PORT = Number(process.env.PORT || 4096);
+import http from "node:http"
+import crypto from "node:crypto"
+import fs from "node:fs"
+import fsp from "node:fs/promises"
+import path from "node:path"
+import os from "node:os"
+import { execFile, exec } from "node:child_process"
+import { promisify } from "node:util"
+import { fileURLToPath } from "node:url"
+import { OpenCodeV2Engine } from "./opencode-v2-engine.mjs"
 
-fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
-fs.mkdirSync(SNAPSHOTS_DIR, { recursive: true });
+const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
-let daemonTaskStatus = 'OpenCode готов • Локальный демон активен';
-let daemonBusy = false;
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const PORT = Number(process.env.PORT || 4096)
+const HOST = process.env.HOST || "0.0.0.0"
 
-function sanitizeSlug(name) {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, '-')
-      .replace(/^-+|-+$/g, '') || `project-${Date.now()}`
-  );
-}
+const STATE_ROOT = process.env.OPENCODE_ANDROID_ROOT || "/tmp/opencode-android-runtime"
+const WORKSPACES_ROOT = path.join(STATE_ROOT, "workspaces")
+const KV_FILE = path.join(STATE_ROOT, "kv-store.json")
 
-function safeResolve(projectDir, relPath) {
-  const cleaned = String(relPath || '').replace(/^\/+/, '');
-  const resolved = path.resolve(projectDir, cleaned);
-  if (!resolved.startsWith(path.resolve(projectDir))) {
-    throw new Error('Path escapes project workspace');
+const STATIC_CANDIDATES = [
+  process.env.OPENCODE_WEB_DIST,
+  "/tmp/opencode-ref/packages/app/dist",
+  path.resolve(__dirname, "../dist"),
+].filter(Boolean)
+
+function resolveStaticRoot() {
+  for (const candidate of STATIC_CANDIDATES) {
+    if (candidate && fs.existsSync(path.join(candidate, "index.html"))) {
+      return candidate
+    }
   }
-  return resolved;
+  return path.resolve(__dirname, "../dist")
 }
 
-function seedStarterProjectIfEmpty() {
-  const entries = fs.readdirSync(WORKSPACES_DIR).filter((n) => !n.startsWith('.'));
-  if (entries.length > 0) return;
-  createProjectSync('opencode-playground', 'typescript');
+const MIME_TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
+  ".wasm": "application/wasm",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".aac": "audio/aac",
+  ".mp3": "audio/mpeg",
 }
 
-function createProjectSync(name, template) {
-  const id = sanitizeSlug(name);
-  let finalId = id;
-  let n = 2;
-  while (fs.existsSync(path.join(WORKSPACES_DIR, finalId))) {
-    finalId = `${id}-${n++}`;
+fs.mkdirSync(WORKSPACES_ROOT, { recursive: true })
+
+let kvCache = {}
+try {
+  if (fs.existsSync(KV_FILE)) {
+    kvCache = JSON.parse(fs.readFileSync(KV_FILE, "utf8"))
   }
-  const dir = path.join(WORKSPACES_DIR, finalId);
-  fs.mkdirSync(dir, { recursive: true });
-
-  if (template === 'python') {
-    fs.writeFileSync(
-      path.join(dir, 'README.md'),
-      `# ${name}\n\nЛокальный Python-проект в OpenCode Android.\n`,
-    );
-    fs.writeFileSync(
-      path.join(dir, 'main.py'),
-      `def greet(user: str) -> str:\n    return f"Привет, {user}! OpenCode работает локально."\n\nif __name__ == "__main__":\n    print(greet("Android"))\n`,
-    );
-  } else if (template === 'android') {
-    fs.mkdirSync(path.join(dir, 'src/main/kotlin'), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, 'README.md'),
-      `# ${name}\n\nKotlin / Android модуль в рабочей папке OpenCode.\n`,
-    );
-    fs.writeFileSync(
-      path.join(dir, 'src/main/kotlin/App.kt'),
-      `package demo\n\nfun main() {\n    println("OpenCode Android Kotlin workspace")\n}\n`,
-    );
-  } else if (template !== 'empty') {
-    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, 'README.md'),
-      `# ${name}\n\nДобро пожаловать в **OpenCode Android**!\n\n- Агент \`build\` читает, создаёт, редактирует и удаляет файлы прямо в локальной папке.\n- Агент \`plan\` безопасно анализирует код и строит планы.\n- Панель **Файлы** и **Терминал** доступны сверху.\n`,
-    );
-    fs.writeFileSync(
-      path.join(dir, 'AGENTS.md'),
-      `- Используй чистый модульный код.\n- Проверяй изменения через diff и локальные команды.\n`,
-    );
-    fs.writeFileSync(
-      path.join(dir, 'package.json'),
-      JSON.stringify({ name: finalId, version: '1.0.0', type: 'module' }, null, 2) + '\n',
-    );
-    fs.writeFileSync(
-      path.join(dir, 'src/index.ts'),
-      `export function sum(a: number, b: number): number {\n  return a + b;\n}\n\nconsole.log("OpenCode workspace ready:", sum(20, 22));\n`,
-    );
+} catch {
+  kvCache = {}
+}
+function saveKv() {
+  try {
+    fs.writeFileSync(KV_FILE, JSON.stringify(kvCache, null, 2), "utf8")
+  } catch {
+    // ignore
   }
-
-  const stat = fs.statSync(dir);
-  return {
-    id: finalId,
-    name,
-    path: dir,
-    template,
-    createdAt: stat.birthtimeMs || Date.now(),
-    updatedAt: stat.mtimeMs || Date.now(),
-  };
 }
 
-seedStarterProjectIfEmpty();
+async function ensureSampleWorkspace() {
+  const sampleDir = path.join(WORKSPACES_ROOT, "opencode-demo-app")
+  if (!fs.existsSync(sampleDir)) {
+    fs.mkdirSync(path.join(sampleDir, "src"), { recursive: true })
+    fs.writeFileSync(
+      path.join(sampleDir, "README.md"),
+      [
+        "# OpenCode Android Local Project",
+        "",
+        "Welcome to **OpenCode v2.2.5** running with the literal upstream `anomalyco/opencode` UI!",
+        "",
+        "## Quick Start",
+        "1. Click **Connect provider** or **Settings -> Providers -> + Custom Provider**.",
+        "2. Enter any OpenAI-compatible or Anthropic-compatible Base URL & API key — `/v1/models` are discovered automatically.",
+        "3. Ask the `build` or `plan` agent to inspect, create, edit, or refactor files, or open the Ghostty terminal.",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    fs.writeFileSync(
+      path.join(sampleDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "opencode-demo-app",
+          version: "1.0.0",
+          type: "module",
+          scripts: {
+            start: "node src/index.js",
+            test: "node --test",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf8",
+    )
+    fs.writeFileSync(
+      path.join(sampleDir, "src/index.js"),
+      [
+        "export function greet(name = 'OpenCode Android') {",
+        "  return `Hello from ${name} v2.2.5!`;",
+        "}",
+        "",
+        "if (import.meta.url === `file://${process.argv[1]}`) {",
+        "  console.log(greet());",
+        "}",
+        "",
+      ].join("\n"),
+      "utf8",
+    )
+    try {
+      await execAsync(
+        'git init -b main && git config user.email "dev@opencode.local" && git config user.name "OpenCode" && git add -A && git commit -m "Initial workspace"',
+        { cwd: sampleDir },
+      )
+    } catch {
+      // ignore git init errors
+    }
+  }
+  return sampleDir
+}
 
-function buildUnifiedDiff(relPath, oldStr, newStr) {
-  const oldLines = oldStr === '' ? [] : oldStr.split('\n');
-  const newLines = newStr === '' ? [] : newStr.split('\n');
-  let additions = 0;
-  let deletions = 0;
-  const out = [`--- a/${relPath}`, `+++ b/${relPath}`, `@@ -1,${oldLines.length} +1,${newLines.length} @@`];
+const defaultWorkspace = await ensureSampleWorkspace()
 
-  const max = Math.max(oldLines.length, newLines.length);
-  for (let i = 0; i < max; i++) {
-    const o = oldLines[i];
-    const n = newLines[i];
-    if (o === n) {
-      if (o !== undefined) out.push(` ${o}`);
-    } else {
-      if (o !== undefined) {
-        out.push(`-${o}`);
-        deletions++;
+const IGNORED_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "__pycache__"])
+
+async function walkDirectory(dir, baseDir, out = [], limit = 2000) {
+  if (out.length >= limit) return out
+  let entries = []
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const entry of entries) {
+    if (out.length >= limit) break
+    if (IGNORED_DIRS.has(entry.name)) continue
+    const full = path.join(dir, entry.name)
+    const rel = path.relative(baseDir, full).split(path.sep).join("/")
+    if (entry.isDirectory()) {
+      out.push({ path: rel, type: "directory" })
+      await walkDirectory(full, baseDir, out, limit)
+    } else if (entry.isFile()) {
+      out.push({ path: rel, type: "file" })
+    }
+  }
+  return out
+}
+
+/** @type {import('../src/engine/opencode-v2-engine').OpenCodeHostAdapter} */
+const hostAdapter = {
+  platform: "node",
+
+  async getDefaultRoot() {
+    return defaultWorkspace
+  },
+
+  async loadState(key) {
+    const val = kvCache[key]
+    return typeof val === "string" ? val : val != null ? JSON.stringify(val) : null
+  },
+  async saveState(key, value) {
+    kvCache[key] = value
+    saveKv()
+  },
+
+  async listProjects() {
+    const entries = await fsp.readdir(WORKSPACES_ROOT, { withFileTypes: true }).catch(() => [])
+    const out = []
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const full = path.join(WORKSPACES_ROOT, entry.name)
+      const stat = await fsp.stat(full).catch(() => null)
+      const now = Date.now()
+      const createdAt = stat && Number.isFinite(stat.birthtimeMs) && stat.birthtimeMs > 0 ? Math.floor(stat.birthtimeMs) : now
+      const updatedAt = stat && Number.isFinite(stat.mtimeMs) && stat.mtimeMs > 0 ? Math.floor(stat.mtimeMs) : now
+      out.push({
+        id: entry.name,
+        name: entry.name,
+        directory: full,
+        createdAt,
+        updatedAt,
+      })
+    }
+    return out.sort((a, b) => b.updatedAt - a.updatedAt)
+  },
+
+  async createProject(input) {
+    const rawName = typeof input === "string" ? input : input?.name || `project-${Date.now()}`
+    const template = typeof input === "object" && input?.template ? input.template : "blank"
+    const clean = rawName.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || `project-${Date.now()}`
+    const full = (typeof input === "object" && input?.directory) || path.join(WORKSPACES_ROOT, clean)
+    await fsp.mkdir(full, { recursive: true })
+    if (template === "node" || template === "node-ts") {
+      await fsp.mkdir(path.join(full, "src"), { recursive: true })
+      await fsp.writeFile(
+        path.join(full, "package.json"),
+        JSON.stringify({ name: clean, version: "0.1.0", type: "module", scripts: { start: "node src/index.js" } }, null, 2) + "\n",
+      )
+      await fsp.writeFile(path.join(full, "src/index.js"), `console.log("Hello from ${clean}!");\n`)
+    } else if (template === "python") {
+      await fsp.writeFile(path.join(full, "main.py"), `def main():\n    print("Hello from ${clean}!")\n\nif __name__ == "__main__":\n    main()\n`)
+    } else if (template === "web" || template === "html") {
+      await fsp.writeFile(
+        path.join(full, "index.html"),
+        `<!doctype html>\n<html><head><meta charset="utf-8"><title>${clean}</title></head><body><h1>${clean}</h1></body></html>\n`,
+      )
+    }
+    if (!fs.existsSync(path.join(full, "README.md"))) {
+      await fsp.writeFile(path.join(full, "README.md"), `# ${clean}\n\nCreated in OpenCode Android.\n`)
+    }
+    try {
+      await execAsync(
+        'git init -b main && git config user.email "dev@opencode.local" && git config user.name "OpenCode" && git add -A && git commit -m "Initial commit"',
+        { cwd: full },
+      )
+    } catch {
+      // ignore
+    }
+    const now = Date.now()
+    return {
+      id: clean,
+      name: clean,
+      directory: full,
+      createdAt: now,
+      updatedAt: now,
+    }
+  },
+
+  async deleteProject(directory) {
+    if (directory && directory.startsWith(WORKSPACES_ROOT)) {
+      await fsp.rm(directory, { recursive: true, force: true })
+    }
+  },
+
+  async fsList(directory, subPath = "") {
+    const target = subPath ? path.resolve(directory, subPath) : directory
+    const entries = await fsp.readdir(target, { withFileTypes: true }).catch(() => [])
+    const nodes = []
+    for (const entry of entries) {
+      if (entry.name === ".git") continue
+      const full = path.join(target, entry.name)
+      const rel = path.relative(directory, full).split(path.sep).join("/")
+      nodes.push({
+        path: rel,
+        type: entry.isDirectory() ? "directory" : "file",
+      })
+    }
+    return nodes.sort((a, b) => (a.type === b.type ? a.path.localeCompare(b.path) : a.type === "directory" ? -1 : 1))
+  },
+
+  async fsFind(directory, query, type, limit = 100) {
+    const all = await walkDirectory(directory, directory, [], 2500)
+    const q = (query || "").toLowerCase()
+    const matches = []
+    for (const item of all) {
+      if (type && item.type !== type) continue
+      if (!q || item.path.toLowerCase().includes(q)) {
+        matches.push(item)
+        if (matches.length >= limit) break
       }
-      if (n !== undefined) {
-        out.push(`+${n}`);
-        additions++;
+    }
+    return matches
+  },
+
+  async fsRead(directory, relPath) {
+    const full = path.isAbsolute(relPath) ? relPath : path.resolve(directory, relPath)
+    if (!fs.existsSync(full) || fs.statSync(full).isDirectory()) {
+      return { exists: false }
+    }
+    const buf = await fsp.readFile(full)
+    const ext = path.extname(full).toLowerCase()
+    const mime = MIME_TYPES[ext] || "text/plain; charset=utf-8"
+    let hasNull = false
+    const checkLen = Math.min(buf.length, 1024)
+    for (let i = 0; i < checkLen; i++) {
+      if (buf[i] === 0) {
+        hasNull = true
+        break
+      }
+    }
+    return {
+      exists: true,
+      bytes: new Uint8Array(buf),
+      text: hasNull ? undefined : buf.toString("utf8"),
+      mime: hasNull && !MIME_TYPES[ext] ? "application/octet-stream" : mime,
+    }
+  },
+
+  async fsWrite(directory, relPath, content) {
+    const full = path.isAbsolute(relPath) ? relPath : path.resolve(directory, relPath)
+    await fsp.mkdir(path.dirname(full), { recursive: true })
+    if (typeof content === "string") {
+      await fsp.writeFile(full, content, "utf8")
+    } else {
+      await fsp.writeFile(full, Buffer.from(content))
+    }
+    return { path: full }
+  },
+
+  async fsDelete(directory, relPath) {
+    const full = path.isAbsolute(relPath) ? relPath : path.resolve(directory, relPath)
+    if (!fs.existsSync(full)) return false
+    await fsp.rm(full, { recursive: true, force: true })
+    return true
+  },
+
+  async fsGrep(directory, pattern, _include, limit = 80) {
+    const all = await walkDirectory(directory, directory, [], 1500)
+    const hits = []
+    let regex = null
+    try {
+      regex = new RegExp(pattern, "i")
+    } catch {
+      regex = null
+    }
+    for (const item of all) {
+      if (item.type !== "file") continue
+      const full = path.join(directory, item.path)
+      const stat = await fsp.stat(full).catch(() => null)
+      if (!stat || stat.size > 512 * 1024) continue
+      const text = await fsp.readFile(full, "utf8").catch(() => null)
+      if (!text) continue
+      const lines = text.split("\n")
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const matched = regex ? regex.test(line) : line.toLowerCase().includes(pattern.toLowerCase())
+        if (matched) {
+          hits.push({
+            path: item.path,
+            line: i + 1,
+            text: line.slice(0, 300),
+          })
+          if (hits.length >= limit) return hits
+        }
+      }
+    }
+    return hits
+  },
+
+  async execShell(directory, command, timeoutMs = 30000) {
+    const start = Date.now()
+    return new Promise((resolve) => {
+      exec(
+        command,
+        {
+          cwd: directory && fs.existsSync(directory) ? directory : defaultWorkspace,
+          timeout: timeoutMs,
+          maxBuffer: 4 * 1024 * 1024,
+        },
+        (error, stdout, stderr) => {
+          const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0
+          resolve({
+            stdout: stdout || "",
+            stderr: stderr || (error && !stderr ? String(error.message || "") : ""),
+            exitCode: code,
+            durationMs: Date.now() - start,
+          })
+        },
+      )
+    })
+  },
+
+  async httpFetch(url, init) {
+    return globalThis.fetch(url, init)
+  },
+}
+
+const engine = new OpenCodeV2Engine(hostAdapter)
+
+// Minimal RFC 6455 WebSocket helper for Persistent PTY (/api/experimental/persistent-pty/:ptyID/connect)
+function encodeWsFrame(payload, opcode = 0x01) {
+  const data = typeof payload === "string" ? Buffer.from(payload, "utf8") : Buffer.from(payload)
+  const len = data.length
+  let header
+  if (len < 126) {
+    header = Buffer.alloc(2)
+    header[0] = 0x80 | opcode
+    header[1] = len
+  } else if (len < 65536) {
+    header = Buffer.alloc(4)
+    header[0] = 0x80 | opcode
+    header[1] = 126
+    header.writeUInt16BE(len, 2)
+  } else {
+    header = Buffer.alloc(10)
+    header[0] = 0x80 | opcode
+    header[1] = 127
+    header.writeBigUInt64BE(BigInt(len), 2)
+  }
+  return Buffer.concat([header, data])
+}
+
+function attachPtyWebSocket(req, socket, head, ptyID) {
+  const key = req.headers["sec-websocket-key"]
+  if (!key) {
+    socket.destroy()
+    return
+  }
+  const accept = crypto
+    .createHash("sha1")
+    .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+    .digest("base64")
+
+  socket.write(
+    [
+      "HTTP/1.1 101 Switching Protocols",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      `Sec-WebSocket-Accept: ${accept}`,
+      "\r\n",
+    ].join("\r\n"),
+  )
+
+  const sendText = (obj) => {
+    if (!socket.destroyed) socket.write(encodeWsFrame(JSON.stringify(obj), 0x01))
+  }
+  const sendBinary = (bytes) => {
+    if (!socket.destroyed) socket.write(encodeWsFrame(bytes, 0x02))
+  }
+
+  sendText({
+    type: "attached",
+    inputProtocol: 1,
+    info: { size: { cols: 100, rows: 30 } },
+    role: "controller",
+  })
+  const replay = engine.getPtyReplayBytes(ptyID)
+  if (replay.byteLength > 0) {
+    sendBinary(replay)
+  }
+  sendText({ type: "replay_complete" })
+
+  const unsub = engine.subscribePtyOutput(ptyID, (bytes) => sendBinary(bytes))
+
+  let buffer = head && head.length ? Buffer.from(head) : Buffer.alloc(0)
+  let lineBuffer = ""
+
+  const handleIncomingFrame = (opcode, payload) => {
+    if (opcode === 0x08) {
+      socket.end(encodeWsFrame(Buffer.alloc(0), 0x08))
+      return
+    }
+    if (opcode === 0x09) {
+      socket.write(encodeWsFrame(payload, 0x0a))
+      return
+    }
+    if (opcode === 0x02 && payload.length >= 5) {
+      const hasData = payload[0] === 1
+      if (!hasData) return
+      const text = payload.subarray(5).toString("utf8")
+      for (const ch of text) {
+        if (ch === "\r" || ch === "\n") {
+          sendBinary(Buffer.from("\r\n", "utf8"))
+          const cmd = lineBuffer.trim()
+          lineBuffer = ""
+          void engine.writePtyInput(ptyID, cmd + "\n")
+        } else if (ch === "\u007f" || ch === "\b") {
+          if (lineBuffer.length > 0) {
+            lineBuffer = lineBuffer.slice(0, -1)
+            sendBinary(Buffer.from("\b \b", "utf8"))
+          }
+        } else if (ch === "\u0003") {
+          lineBuffer = ""
+          sendBinary(Buffer.from("^C\r\n$ ", "utf8"))
+        } else {
+          lineBuffer += ch
+          sendBinary(Buffer.from(ch, "utf8"))
+        }
+      }
+    } else if (opcode === 0x01) {
+      const str = payload.toString("utf8")
+      try {
+        const parsed = JSON.parse(str)
+        if (parsed?.type === "ping") sendText({ type: "pong" })
+      } catch {
+        void engine.writePtyInput(ptyID, str)
       }
     }
   }
-  const status = oldStr === '' ? 'added' : newStr === '' ? 'deleted' : 'modified';
-  return {
-    path: relPath,
-    status,
-    oldContent: oldStr,
-    newContent: newStr,
-    additions,
-    deletions,
-    unifiedDiff: out.slice(0, 260).join('\n'),
-  };
-}
 
-function walkTree(baseDir, currentRel = '') {
-  const full = path.join(baseDir, currentRel);
-  const entries = fs.readdirSync(full, { withFileTypes: true });
-  const nodes = [];
-  const flat = [];
-
-  entries.sort((a, b) => {
-    if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  for (const ent of entries) {
-    if (ent.name === '.git' || ent.name === 'node_modules' || ent.name === '.snapshots') continue;
-    const rel = currentRel ? `${currentRel}/${ent.name}` : ent.name;
-    const p = path.join(baseDir, rel);
-    if (ent.isDirectory()) {
-      const sub = walkTree(baseDir, rel);
-      nodes.push({ name: ent.name, path: rel, type: 'directory', children: sub.nodes });
-      flat.push(...sub.flat);
-    } else {
-      const st = fs.statSync(p);
-      nodes.push({ name: ent.name, path: rel, type: 'file', size: st.size, mtime: st.mtimeMs });
-      flat.push(rel);
+  const parseFrames = () => {
+    while (buffer.length >= 2) {
+      const byte0 = buffer[0]
+      const byte1 = buffer[1]
+      const opcode = byte0 & 0x0f
+      const masked = (byte1 & 0x80) !== 0
+      let len = byte1 & 0x7f
+      let offset = 2
+      if (len === 126) {
+        if (buffer.length < 4) return
+        len = buffer.readUInt16BE(2)
+        offset = 4
+      } else if (len === 127) {
+        if (buffer.length < 10) return
+        len = Number(buffer.readBigUInt64BE(2))
+        offset = 10
+      }
+      const maskLen = masked ? 4 : 0
+      if (buffer.length < offset + maskLen + len) return
+      const mask = masked ? buffer.subarray(offset, offset + 4) : null
+      offset += maskLen
+      const payload = Buffer.from(buffer.subarray(offset, offset + len))
+      if (mask) {
+        for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3]
+      }
+      buffer = buffer.subarray(offset + len)
+      handleIncomingFrame(opcode, payload)
     }
   }
-  return { nodes, flat };
-}
 
-function globToRegExp(glob) {
-  const escaped = glob
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*\//g, '(?:.+/)?')
-    .replace(/\*\*/g, '.*')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '.');
-  return new RegExp(`^${escaped}$`, 'i');
+  if (buffer.length > 0) parseFrames()
+  socket.on("data", (chunk) => {
+    buffer = Buffer.concat([buffer, chunk])
+    parseFrames()
+  })
+  socket.on("close", () => unsub())
+  socket.on("error", () => unsub())
 }
-
-function copyDirRecursive(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
-    if (ent.name === '.git' || ent.name === 'node_modules') continue;
-    const s = path.join(src, ent.name);
-    const d = path.join(dest, ent.name);
-    if (ent.isDirectory()) copyDirRecursive(s, d);
-    else fs.copyFileSync(s, d);
-  }
-}
-
-async function readJsonBody(req) {
-  const chunks = [];
-  for await (const c of req) chunks.push(c);
-  const raw = Buffer.concat(chunks).toString('utf8');
-  return raw ? JSON.parse(raw) : {};
-}
-
-function sendJson(res, status, obj) {
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-  });
-  res.end(JSON.stringify(obj));
-}
-
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.apk': 'application/vnd.android.package-archive',
-};
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    });
-    return res.end();
-  }
-
-  const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  const pathname = parsedUrl.pathname;
-
   try {
-    if (pathname === '/api/health') {
-      return sendJson(res, 200, {
-        ok: true,
-        running: true,
-        platform: 'web',
-        daemonUrl: `http://0.0.0.0:${PORT}`,
-        foregroundService: true,
-        busy: daemonBusy,
-        currentTask: daemonTaskStatus,
-        workspacesRoot: WORKSPACES_DIR,
-      });
+    const reqUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`)
+
+    // CORS & iframe-friendly headers for Live Preview
+    res.setHeader("Access-Control-Allow-Origin", "*")
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+    res.setHeader("Access-Control-Allow-Headers", "*")
+    if (req.method === "OPTIONS") {
+      res.writeHead(204)
+      res.end()
+      return
     }
 
-    if (pathname === '/api/daemon/status' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      daemonTaskStatus = String(body.statusText || daemonTaskStatus);
-      daemonBusy = Boolean(body.busy);
-      return sendJson(res, 200, { ok: true });
+    if (reqUrl.pathname.startsWith("/api/")) {
+      const chunks = []
+      for await (const chunk of req) chunks.push(chunk)
+      const bodyBuf = chunks.length > 0 ? Buffer.concat(chunks) : undefined
+
+      const headers = new Headers()
+      for (const [k, v] of Object.entries(req.headers)) {
+        if (Array.isArray(v)) headers.set(k, v.join(", "))
+        else if (typeof v === "string") headers.set(k, v)
+      }
+
+      const webReq = new Request(reqUrl.toString(), {
+        method: req.method || "GET",
+        headers,
+        body: req.method === "GET" || req.method === "HEAD" ? undefined : bodyBuf,
+      })
+
+      const webRes = await engine.handle(webReq)
+      res.statusCode = webRes.status
+      webRes.headers.forEach((value, key) => {
+        res.setHeader(key, value)
+      })
+
+      if (!webRes.body) {
+        res.end()
+        return
+      }
+
+      const reader = webRes.body.getReader()
+      req.on("close", () => {
+        void reader.cancel().catch(() => undefined)
+      })
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (res.writableEnded) break
+        res.write(Buffer.from(value))
+      }
+      if (!res.writableEnded) res.end()
+      return
     }
 
-    if (pathname === '/api/projects' && req.method === 'GET') {
-      const dirs = fs.readdirSync(WORKSPACES_DIR, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.'));
-      const projects = dirs.map((d) => {
-        const p = path.join(WORKSPACES_DIR, d.name);
-        const st = fs.statSync(p);
-        return {
-          id: d.name,
-          name: d.name,
-          path: p,
-          createdAt: st.birthtimeMs || Date.now(),
-          updatedAt: st.mtimeMs || Date.now(),
-        };
-      });
-      return sendJson(res, 200, { ok: true, projects });
+    // Serve compiled upstream @opencode/app static assets
+    const staticRoot = resolveStaticRoot()
+    let relPath = decodeURIComponent(reqUrl.pathname)
+    if (relPath === "/") relPath = "/index.html"
+    const candidate = path.resolve(staticRoot, "." + relPath)
+
+    if (candidate.startsWith(staticRoot) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      const ext = path.extname(candidate).toLowerCase()
+      res.setHeader("Content-Type", MIME_TYPES[ext] || "application/octet-stream")
+      if (relPath.startsWith("/_assets/")) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable")
+      } else {
+        res.setHeader("Cache-Control", "no-cache")
+      }
+      fs.createReadStream(candidate).pipe(res)
+      return
     }
 
-    if (pathname === '/api/projects/create' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      const project = createProjectSync(String(body.name || 'project'), String(body.template || 'typescript'));
-      return sendJson(res, 200, { ok: true, project });
+    // SPA fallback -> index.html
+    const indexHtml = path.join(staticRoot, "index.html")
+    if (fs.existsSync(indexHtml)) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8")
+      res.setHeader("Cache-Control", "no-cache")
+      fs.createReadStream(indexHtml).pipe(res)
+      return
     }
 
-    if (pathname === '/api/projects/delete' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      const dir = path.join(WORKSPACES_DIR, path.basename(String(body.projectId || '')));
-      fs.rmSync(dir, { recursive: true, force: true });
-      seedStarterProjectIfEmpty();
-      return sendJson(res, 200, { ok: true });
-    }
-
-    if (pathname === '/api/projects/clone' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      const repoUrl = String(body.repoUrl || '').trim().replace(/\.git$/, '');
-      const m = repoUrl.match(/github\.com\/([^/]+)\/([^/#?]+)/i);
-      if (!m) throw new Error('Укажите ссылку вида https://github.com/owner/repo');
-      const [, owner, repo] = m;
-      const slug = sanitizeSlug(body.name || repo);
-      const dest = path.join(WORKSPACES_DIR, slug);
-      fs.rmSync(dest, { recursive: true, force: true });
-      await new Promise((resolve, reject) => {
-        const proc = spawn('git', ['clone', '--depth', '1', `https://github.com/${owner}/${repo}.git`, dest]);
-        proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`git clone exited ${code}`))));
-      });
-      fs.rmSync(path.join(dest, '.git'), { recursive: true, force: true });
-      return sendJson(res, 200, {
-        ok: true,
-        project: { id: slug, name: slug, path: dest, createdAt: Date.now(), updatedAt: Date.now() },
-      });
-    }
-
-    if (pathname === '/api/projects/export-zip' && req.method === 'GET') {
-      const projectId = path.basename(String(parsedUrl.searchParams.get('projectId') || ''));
-      const projDir = path.join(WORKSPACES_DIR, projectId);
-      const tmpZip = `/tmp/${projectId}-${Date.now()}.zip`;
-      await new Promise((resolve, reject) => {
-        const p = spawn('zip', ['-r', '-q', tmpZip, '.'], { cwd: projDir });
-        p.on('close', (c) => (c === 0 ? resolve() : reject(new Error('zip failed'))));
-      });
-      res.writeHead(200, {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${projectId}.zip"`,
-      });
-      fs.createReadStream(tmpZip).pipe(res).on('finish', () => fs.rmSync(tmpZip, { force: true }));
-      return;
-    }
-
-    if (pathname === '/download/OpenCode-Android-v2.2.5.apk') {
-      const apkPath = path.join(REPO_ROOT, 'OpenCode-Android-v2.2.5.apk');
-      if (!fs.existsSync(apkPath)) {
-        res.writeHead(404);
-        return res.end('APK not built yet');
-      }
-      const st = fs.statSync(apkPath);
-      res.writeHead(200, {
-        'Content-Type': MIME['.apk'],
-        'Content-Length': st.size,
-        'Content-Disposition': 'attachment; filename="OpenCode-Android-v2.2.5.apk"',
-      });
-      if (req.method === 'HEAD') return res.end();
-      return fs.createReadStream(apkPath).pipe(res);
-    }
-
-    // FS endpoints
-    if (pathname.startsWith('/api/fs/') || pathname.startsWith('/api/snapshots/') || pathname.startsWith('/api/shell/')) {
-      const body = await readJsonBody(req);
-      const projectId = path.basename(String(body.projectId || ''));
-      const projDir = path.join(WORKSPACES_DIR, projectId);
-      if (!fs.existsSync(projDir)) throw new Error(`Project not found: ${projectId}`);
-
-      if (pathname === '/api/fs/tree') {
-        const walked = walkTree(projDir);
-        return sendJson(res, 200, { ok: true, tree: walked.nodes, flatFiles: walked.flat });
-      }
-
-      if (pathname === '/api/fs/read') {
-        const target = safeResolve(projDir, body.path);
-        const content = await fsp.readFile(target, 'utf8');
-        const allLines = content.split('\n');
-        const offset = Math.max(1, Number(body.offset || 1));
-        const limit = Math.max(1, Number(body.limit || 300));
-        const slice = allLines.slice(offset - 1, offset - 1 + limit);
-        const numbered = slice.map((l, idx) => `${String(offset + idx).padStart(4, ' ')} | ${l}`).join('\n');
-        return sendJson(res, 200, {
-          ok: true,
-          content,
-          totalLines: allLines.length,
-          numbered,
-          size: Buffer.byteLength(content, 'utf8'),
-        });
-      }
-
-      if (pathname === '/api/fs/write') {
-        const rel = String(body.path || '').replace(/^\/+/, '');
-        const target = safeResolve(projDir, rel);
-        const prev = fs.existsSync(target) ? await fsp.readFile(target, 'utf8') : '';
-        await fsp.mkdir(path.dirname(target), { recursive: true });
-        const next = String(body.content ?? '');
-        await fsp.writeFile(target, next, 'utf8');
-        return sendJson(res, 200, { ok: true, diff: buildUnifiedDiff(rel, prev, next) });
-      }
-
-      if (pathname === '/api/fs/edit') {
-        const rel = String(body.path || '').replace(/^\/+/, '');
-        const target = safeResolve(projDir, rel);
-        const prev = await fsp.readFile(target, 'utf8');
-        const oldS = String(body.oldString ?? '');
-        const newS = String(body.newString ?? '');
-        if (!prev.includes(oldS)) {
-          throw new Error(`oldString not found in ${rel}`);
-        }
-        const next = body.replaceAll ? prev.split(oldS).join(newS) : prev.replace(oldS, newS);
-        const replacements = body.replaceAll ? prev.split(oldS).length - 1 : 1;
-        await fsp.writeFile(target, next, 'utf8');
-        return sendJson(res, 200, { ok: true, replacements, diff: buildUnifiedDiff(rel, prev, next) });
-      }
-
-      if (pathname === '/api/fs/patch') {
-        const patchText = String(body.patchText || '');
-        const diffs = [];
-        const lines = patchText.split('\n');
-        let i = 0;
-        while (i < lines.length) {
-          const line = lines[i];
-          if (line.startsWith('*** Add File: ')) {
-            const rel = line.slice('*** Add File: '.length).trim();
-            i++;
-            const buf = [];
-            while (i < lines.length && !lines[i].startsWith('*** ')) {
-              buf.push(lines[i].startsWith('+') ? lines[i].slice(1) : lines[i]);
-              i++;
-            }
-            const target = safeResolve(projDir, rel);
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            const content = buf.join('\n');
-            fs.writeFileSync(target, content, 'utf8');
-            diffs.push(buildUnifiedDiff(rel, '', content));
-            continue;
-          }
-          if (line.startsWith('*** Delete File: ')) {
-            const rel = line.slice('*** Delete File: '.length).trim();
-            const target = safeResolve(projDir, rel);
-            const prev = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : '';
-            fs.rmSync(target, { force: true });
-            diffs.push(buildUnifiedDiff(rel, prev, ''));
-          }
-          i++;
-        }
-        return sendJson(res, 200, { ok: true, diffs, summary: `Applied patch (${diffs.length} file(s) changed)` });
-      }
-
-      if (pathname === '/api/fs/delete') {
-        const rel = String(body.path || '').replace(/^\/+/, '');
-        const target = safeResolve(projDir, rel);
-        let prev = '';
-        if (fs.existsSync(target) && fs.statSync(target).isFile()) {
-          prev = fs.readFileSync(target, 'utf8');
-        }
-        fs.rmSync(target, { recursive: true, force: true });
-        return sendJson(res, 200, { ok: true, deletedCount: 1, diff: buildUnifiedDiff(rel, prev, '') });
-      }
-
-      if (pathname === '/api/fs/mkdir') {
-        const target = safeResolve(projDir, body.path);
-        await fsp.mkdir(target, { recursive: true });
-        return sendJson(res, 200, { ok: true });
-      }
-
-      if (pathname === '/api/fs/rename') {
-        const src = safeResolve(projDir, body.oldPath);
-        const dst = safeResolve(projDir, body.newPath);
-        await fsp.mkdir(path.dirname(dst), { recursive: true });
-        await fsp.rename(src, dst);
-        return sendJson(res, 200, { ok: true });
-      }
-
-      if (pathname === '/api/fs/glob') {
-        const rx = globToRegExp(String(body.pattern || '**/*'));
-        const walked = walkTree(projDir);
-        return sendJson(res, 200, { ok: true, matches: walked.flat.filter((f) => rx.test(f)) });
-      }
-
-      if (pathname === '/api/fs/grep') {
-        const rx = new RegExp(String(body.pattern || ''), 'i');
-        const incRx = body.include ? globToRegExp(String(body.include)) : null;
-        const walked = walkTree(projDir);
-        const matches = [];
-        for (const f of walked.flat) {
-          if (incRx && !incRx.test(path.basename(f)) && !incRx.test(f)) continue;
-          const full = path.join(projDir, f);
-          const txt = fs.readFileSync(full, 'utf8');
-          const lines = txt.split('\n');
-          for (let ln = 0; ln < lines.length; ln++) {
-            if (rx.test(lines[ln])) {
-              matches.push({ path: f, line: ln + 1, text: lines[ln].slice(0, 220) });
-              if (matches.length >= 120) break;
-            }
-          }
-          if (matches.length >= 120) break;
-        }
-        return sendJson(res, 200, { ok: true, matches });
-      }
-
-      if (pathname === '/api/snapshots/create') {
-        const snapshotId = `snap_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        const snapPath = path.join(SNAPSHOTS_DIR, snapshotId);
-        copyDirRecursive(projDir, snapPath);
-        return sendJson(res, 200, { ok: true, snapshotId });
-      }
-
-      if (pathname === '/api/snapshots/diff') {
-        const snapPath = path.join(SNAPSHOTS_DIR, path.basename(String(body.snapshotId || '')));
-        if (!fs.existsSync(snapPath)) return sendJson(res, 200, { ok: true, diffs: [] });
-        const beforeFiles = new Set(walkTree(snapPath).flat);
-        const afterFiles = new Set(walkTree(projDir).flat);
-        const all = new Set([...beforeFiles, ...afterFiles]);
-        const diffs = [];
-        for (const rel of all) {
-          const oldTxt = beforeFiles.has(rel) ? fs.readFileSync(path.join(snapPath, rel), 'utf8') : '';
-          const newTxt = afterFiles.has(rel) ? fs.readFileSync(path.join(projDir, rel), 'utf8') : '';
-          if (oldTxt !== newTxt) diffs.push(buildUnifiedDiff(rel, oldTxt, newTxt));
-        }
-        return sendJson(res, 200, { ok: true, diffs });
-      }
-
-      if (pathname === '/api/snapshots/revert') {
-        const snapPath = path.join(SNAPSHOTS_DIR, path.basename(String(body.snapshotId || '')));
-        if (!fs.existsSync(snapPath)) throw new Error('Snapshot not found');
-        for (const ent of fs.readdirSync(projDir)) {
-          if (ent === '.git') continue;
-          fs.rmSync(path.join(projDir, ent), { recursive: true, force: true });
-        }
-        copyDirRecursive(snapPath, projDir);
-        const count = walkTree(projDir).flat.length;
-        return sendJson(res, 200, { ok: true, restoredFiles: count });
-      }
-
-      if (pathname === '/api/shell/exec') {
-        const command = String(body.command || '');
-        const timeoutMs = Math.min(120000, Math.max(1000, Number(body.timeoutMs || 45000)));
-        const t0 = Date.now();
-        const result = await new Promise((resolve) => {
-          const proc = spawn('/bin/sh', ['-c', command], {
-            cwd: projDir,
-            env: { ...process.env, OPENCODE: '1', TERM: 'xterm-256color' },
-          });
-          let stdout = '';
-          let stderr = '';
-          const timer = setTimeout(() => {
-            proc.kill('SIGKILL');
-            stderr += '\n[Timed out]';
-          }, timeoutMs);
-          proc.stdout.on('data', (d) => {
-            stdout += d.toString();
-          });
-          proc.stderr.on('data', (d) => {
-            stderr += d.toString();
-          });
-          proc.on('close', (code) => {
-            clearTimeout(timer);
-            resolve({
-              stdout: stdout.slice(0, 64000),
-              stderr: stderr.slice(0, 32000),
-              exitCode: code ?? 0,
-              durationMs: Date.now() - t0,
-              cwd: projDir,
-            });
-          });
-        });
-        return sendJson(res, 200, { ok: true, ...result });
-      }
-    }
-
-    // Proxy endpoints (mirrors Android ForegroundService native HttpURLConnection proxy)
-    if (pathname === '/api/proxy/fetch' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      const upstream = await fetch(String(body.url), {
-        headers: { 'User-Agent': 'OpenCode-Android/2.2.5' },
-      });
-      const raw = await upstream.text();
-      const stripped = raw
-        .replace(/<script[\s\S]*?<\/script>/gi, '')
-        .replace(/<style[\s\S]*?<\/style>/gi, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      return sendJson(res, 200, {
-        ok: true,
-        status: upstream.status,
-        contentType: upstream.headers.get('content-type') || 'text/plain',
-        content: stripped,
-      });
-    }
-
-    if (pathname === '/api/proxy/stream' && req.method === 'POST') {
-      const body = await readJsonBody(req);
-      const upstream = await fetch(String(body.url), {
-        method: String(body.method || 'POST'),
-        headers: body.headers || {},
-        body: body.body !== undefined && body.method !== 'GET' ? JSON.stringify(body.body) : undefined,
-      });
-      res.writeHead(upstream.status, {
-        'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream',
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
-      });
-      if (!upstream.body) return res.end();
-      for await (const chunk of upstream.body) {
-        res.write(chunk);
-      }
-      return res.end();
-    }
-
-    // Serve built SPA static assets from WWW_DIR
-    let assetPath = path.join(WWW_DIR, pathname === '/' ? 'index.html' : pathname);
-    if (!fs.existsSync(assetPath) || fs.statSync(assetPath).isDirectory()) {
-      assetPath = path.join(WWW_DIR, 'index.html');
-    }
-    if (fs.existsSync(assetPath)) {
-      const ext = path.extname(assetPath).toLowerCase();
-      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
-      return fs.createReadStream(assetPath).pipe(res);
-    }
-
-    res.writeHead(404);
-    res.end('Not found');
+    res.statusCode = 404
+    res.end("OpenCode web bundle not found. Run npm run build:web first.")
   } catch (err) {
-    sendJson(res, 500, { ok: false, error: err?.message || String(err) });
+    if (!res.headersSent) res.statusCode = 500
+    res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
   }
-});
+})
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`OpenCode Daemon listening on http://0.0.0.0:${PORT}`);
-});
+server.on("upgrade", (req, socket, head) => {
+  try {
+    const reqUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`)
+    const m = reqUrl.pathname.match(/^\/api\/experimental\/persistent-pty\/([^/]+)\/connect$/)
+    if (m) {
+      attachPtyWebSocket(req, socket, head, decodeURIComponent(m[1]))
+      return
+    }
+    socket.destroy()
+  } catch {
+    socket.destroy()
+  }
+})
+
+server.listen(PORT, HOST, () => {
+  console.log(`[OpenCode Android v2.2.5] Upstream Desktop/Mobile Server listening on http://${HOST}:${PORT}`)
+  console.log(`[OpenCode Android v2.2.5] Static root: ${resolveStaticRoot()}`)
+  console.log(`[OpenCode Android v2.2.5] Default workspace: ${defaultWorkspace}`)
+})

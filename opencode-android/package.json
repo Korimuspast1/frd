@@ -3,24 +3,12 @@
   "version": "2.2.5",
   "private": true,
   "type": "module",
-  "description": "Complete working Android port of anomalyco/opencode (Background Daemon Service + Local Workspaces + Full Agent Tools + 1:1 OpenCode v2 UI)",
+  "description": "Complete 1-to-1 Android port of anomalyco/opencode (v2.2.5) built directly from upstream @opencode/app, @opencode/ui, @opencode/session-ui, and @opencode/gui-plugins with local workspaces, background service, and custom provider /v1/models auto-discovery.",
   "scripts": {
-    "dev": "node server/dev-daemon.mjs",
     "start": "node server/dev-daemon.mjs",
-    "build:web": "tsc --noEmit && vite build",
-    "build:apk": "npm run build:web && node scripts/build-apk.mjs"
-  },
-  "dependencies": {
-    "lucide-react": "^0.511.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.15.0",
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
-    "@vitejs/plugin-react": "^4.4.1",
-    "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "dev": "node server/dev-daemon.mjs",
+    "build:web": "node scripts/build-upstream-web.mjs",
+    "build:apk": "node scripts/build-apk.mjs",
+    "build": "node scripts/build-upstream-web.mjs && node scripts/build-apk.mjs"
   }
 }

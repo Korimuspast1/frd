@@ -14,6 +14,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsetsController
@@ -21,35 +22,34 @@ import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.TextView
+import java.io.ByteArrayInputStream
 
 class MainActivity : Activity() {
 
     companion object {
         private const val REQ_FILE_CHOOSER = 2001
         private const val REQ_NOTIFICATIONS = 2002
+        private const val APP_ORIGIN = "http://opencode.local/"
     }
 
-    private lateinit var webView: WebView
-    private var daemonService: OpenCodeDaemonService? = null
+    private var webView: WebView? = null
+    private lateinit var runtime: OpenCodeRuntime
     private var serviceBound = false
-    private var uiLoaded = false
     private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as? OpenCodeDaemonService.LocalBinder
-            daemonService = binder?.getService()
             serviceBound = true
-            loadOpenCodeUiIfNeeded()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             serviceBound = false
-            daemonService = null
         }
     }
 
@@ -57,19 +57,40 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        applySystemBarsTheme("#131010", true)
-        requestNotificationPermissionIfNeeded()
+        // Initialize background runtime (starts workspace + LocalHttpDaemon strictly on worker threads)
+        runtime = OpenCodeRuntime.getInstance(applicationContext)
+
+        applySystemBarsTheme("#080808", true)
 
         val rootLayout = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#131010"))
+            setBackgroundColor(Color.parseColor("#080808"))
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         }
 
-        webView = WebView(this).apply {
-            setBackgroundColor(Color.parseColor("#131010"))
+        val createdWebView = try {
+            WebView(this)
+        } catch (t: Throwable) {
+            null
+        }
+
+        if (createdWebView == null) {
+            val fallbackLabel = TextView(this).apply {
+                text = "Android System WebView is unavailable on this device.\nPlease enable or update Android System WebView."
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(48, 48, 48, 48)
+            }
+            rootLayout.addView(fallbackLabel)
+            setContentView(rootLayout)
+            return
+        }
+
+        webView = createdWebView.apply {
+            setBackgroundColor(Color.parseColor("#080808"))
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -78,42 +99,60 @@ class MainActivity : Activity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                allowFileAccess = true
+                allowFileAccess = false
                 allowContentAccess = true
                 mediaPlaybackRequiresUserGesture = false
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                 cacheMode = WebSettings.LOAD_DEFAULT
                 textZoom = 100
+                setSupportMultipleWindows(false)
             }
 
-            addJavascriptInterface(
-                NativeBridge(this@MainActivity) { daemonService },
-                "OpenCodeAndroid"
-            )
+            val bridge = NativeBridge(this@MainActivity, runtime) { webView }
+            addJavascriptInterface(bridge, "OpenCodeNative")
+            addJavascriptInterface(bridge, "OpenCodeAndroid")
 
             webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val uri = request?.url ?: return null
+                    val host = (uri.host ?: "").lowercase()
+                    if (host != "opencode.local") {
+                        return super.shouldInterceptRequest(view, request)
+                    }
+                    return serveBundledAsset(uri.path ?: "/", request.method ?: "GET")
+                }
+
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): Boolean {
                     val uri = request?.url ?: return false
-                    val host = uri.host ?: ""
-                    if (host == "127.0.0.1" || host == "localhost" || uri.scheme == "file") {
+                    val host = (uri.host ?: "").lowercase()
+                    if (host == "opencode.local" || host == "127.0.0.1" || host == "localhost") {
                         return false
                     }
                     return try {
                         startActivity(Intent(Intent.ACTION_VIEW, uri))
                         true
-                    } catch (_: Exception) {
-                        false
+                    } catch (_: Throwable) {
+                        true
                     }
                 }
             }
 
             webChromeClient = object : WebChromeClient() {
                 override fun onPermissionRequest(request: PermissionRequest?) {
-                    request?.grant(request.resources)
+                    try {
+                        request?.grant(request.resources)
+                    } catch (_: Throwable) {
+                    }
                 }
 
                 override fun onShowFileChooser(
-                    webView: WebView?,
+                    view: WebView?,
                     filePathCallback: ValueCallback<Array<Uri>>?,
                     fileChooserParams: FileChooserParams?
                 ): Boolean {
@@ -127,7 +166,7 @@ class MainActivity : Activity() {
                     return try {
                         startActivityForResult(intent, REQ_FILE_CHOOSER)
                         true
-                    } catch (_: Exception) {
+                    } catch (_: Throwable) {
                         fileUploadCallback = null
                         false
                     }
@@ -135,37 +174,129 @@ class MainActivity : Activity() {
             }
         }
 
-        rootLayout.addView(webView)
+        rootLayout.addView(createdWebView)
         setContentView(rootLayout)
 
-        // Track Android soft keyboard height smoothly for floating composer
+        // Load literal upstream @opencode/app immediately from APK assets!
+        createdWebView.loadUrl(APP_ORIGIN)
+
+        // Track Android soft keyboard height smoothly
         val density = resources.displayMetrics.density
         rootLayout.viewTreeObserver.addOnGlobalLayoutListener {
-            val r = Rect()
-            rootLayout.getWindowVisibleDisplayFrame(r)
-            val screenHeight = rootLayout.rootView.height
-            val keypadPx = screenHeight - r.bottom
-            val cssPx = if (keypadPx > screenHeight * 0.14) (keypadPx / density).toInt() else 0
-            webView.evaluateJavascript(
-                "window.__onAndroidKeyboardInset && window.__onAndroidKeyboardInset($cssPx);",
-                null
+            try {
+                val r = Rect()
+                rootLayout.getWindowVisibleDisplayFrame(r)
+                val screenHeight = rootLayout.rootView.height
+                val keypadPx = screenHeight - r.bottom
+                val cssPx = if (keypadPx > screenHeight * 0.14) (keypadPx / density).toInt() else 0
+                webView?.evaluateJavascript(
+                    "document.documentElement.style.setProperty('--keyboard-inset', '${cssPx}px');",
+                    null
+                )
+            } catch (_: Throwable) {
+            }
+        }
+
+        // Start & bind background Foreground Daemon Service safely (never fatal if restricted by OEM)
+        startDaemonServiceSafely()
+        requestNotificationPermissionSafely()
+    }
+
+    private fun startDaemonServiceSafely() {
+        try {
+            val serviceIntent = Intent(this, OpenCodeDaemonService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun serveBundledAsset(rawPath: String, method: String): WebResourceResponse {
+        val corsHeaders = HashMap<String, String>().apply {
+            put("Access-Control-Allow-Origin", "*")
+            put("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+            put("Access-Control-Allow-Headers", "*")
+        }
+
+        if (method.equals("OPTIONS", ignoreCase = true)) {
+            return WebResourceResponse(
+                "text/plain",
+                "UTF-8",
+                204,
+                "No Content",
+                corsHeaders,
+                ByteArrayInputStream(ByteArray(0))
             )
         }
 
-        // Start & bind OpenCode Foreground Daemon Service!
-        val serviceIntent = Intent(this, OpenCodeDaemonService::class.java)
-        startForegroundService(serviceIntent)
-        bindService(serviceIntent, connection, Context.BIND_AUTO_CREATE)
+        val normalized = rawPath.trimStart('/').ifEmpty { "index.html" }
+        val assetPath = "www/$normalized"
+
+        return try {
+            val stream = assets.open(assetPath)
+            val mime = guessAssetMime(normalized)
+            val encoding = if (mime.startsWith("text/") || mime.contains("javascript") || mime.contains("json")) "UTF-8" else null
+            if (normalized.startsWith("_assets/")) {
+                corsHeaders["Cache-Control"] = "public, max-age=31536000, immutable"
+            } else {
+                corsHeaders["Cache-Control"] = "no-cache"
+            }
+            WebResourceResponse(mime, encoding, 200, "OK", corsHeaders, stream)
+        } catch (_: Throwable) {
+            // SPA client-side router fallback -> www/index.html for routes without file extension
+            val lastSegment = normalized.substringAfterLast('/')
+            if (!lastSegment.contains('.')) {
+                return try {
+                    val indexStream = assets.open("www/index.html")
+                    corsHeaders["Cache-Control"] = "no-cache"
+                    WebResourceResponse("text/html", "UTF-8", 200, "OK", corsHeaders, indexStream)
+                } catch (_: Throwable) {
+                    WebResourceResponse(
+                        "text/plain",
+                        "UTF-8",
+                        404,
+                        "Not Found",
+                        corsHeaders,
+                        ByteArrayInputStream("Asset not found".toByteArray(Charsets.UTF_8))
+                    )
+                }
+            }
+            WebResourceResponse(
+                "text/plain",
+                "UTF-8",
+                404,
+                "Not Found",
+                corsHeaders,
+                ByteArrayInputStream(ByteArray(0))
+            )
+        }
     }
 
-    private fun loadOpenCodeUiIfNeeded() {
-        if (uiLoaded) return
-        val port = daemonService?.daemonPort ?: 0
-        if (port > 0) {
-            uiLoaded = true
-            webView.loadUrl("http://127.0.0.1:$port/")
-        } else {
-            webView.postDelayed({ loadOpenCodeUiIfNeeded() }, 40)
+    private fun guessAssetMime(path: String): String {
+        val lower = path.lowercase()
+        return when {
+            lower.endsWith(".html") -> "text/html"
+            lower.endsWith(".js") || lower.endsWith(".mjs") -> "text/javascript"
+            lower.endsWith(".css") -> "text/css"
+            lower.endsWith(".json") -> "application/json"
+            lower.endsWith(".webmanifest") -> "application/manifest+json"
+            lower.endsWith(".wasm") -> "application/wasm"
+            lower.endsWith(".svg") -> "image/svg+xml"
+            lower.endsWith(".png") -> "image/png"
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            lower.endsWith(".webp") -> "image/webp"
+            lower.endsWith(".gif") -> "image/gif"
+            lower.endsWith(".ico") -> "image/x-icon"
+            lower.endsWith(".woff2") -> "font/woff2"
+            lower.endsWith(".woff") -> "font/woff"
+            lower.endsWith(".ttf") -> "font/ttf"
+            lower.endsWith(".aac") -> "audio/aac"
+            lower.endsWith(".mp3") -> "audio/mpeg"
+            else -> "application/octet-stream"
         }
     }
 
@@ -192,15 +323,19 @@ class MainActivity : Activity() {
                     @Suppress("DEPRECATION")
                     window.decorView.systemUiVisibility = vis
                 }
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {
+            }
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
+    private fun requestNotificationPermissionSafely() {
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
+                }
             }
+        } catch (_: Throwable) {
         }
     }
 
@@ -228,23 +363,21 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        webView.evaluateJavascript(
-            "(function(){ return !!(window.__onAndroidBackPressed && window.__onAndroidBackPressed()); })()"
-        ) { handled ->
-            if (handled != "true") {
-                if (webView.canGoBack()) {
-                    webView.goBack()
-                } else {
-                    @Suppress("DEPRECATION")
-                    super.onBackPressed()
-                }
-            }
+        val wv = webView
+        if (wv != null && wv.canGoBack()) {
+            wv.goBack()
+            return
         }
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
     }
 
     override fun onDestroy() {
         if (serviceBound) {
-            unbindService(connection)
+            try {
+                unbindService(connection)
+            } catch (_: Throwable) {
+            }
             serviceBound = false
         }
         super.onDestroy()

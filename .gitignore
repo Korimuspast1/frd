@@ -6,4 +6,5 @@ opencode-android/android/app/build/
 opencode-android/android/.gradle/
 opencode-android/.workspaces-dev/
 *.keystore.tmp
+*.idsig
 .DS_Store

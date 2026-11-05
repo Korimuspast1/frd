@@ -26,47 +26,43 @@ class OpenCodeDaemonService : Service() {
     }
 
     private val binder = LocalBinder()
-    lateinit var workspaceManager: WorkspaceManager
-        private set
-    private lateinit var shellExecutor: ShellExecutor
-    private lateinit var httpDaemon: LocalHttpDaemon
+    private lateinit var runtime: OpenCodeRuntime
     private var wakeLock: PowerManager.WakeLock? = null
-
-    val daemonPort: Int
-        get() = if (::httpDaemon.isInitialized) httpDaemon.port else 0
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        workspaceManager = WorkspaceManager(applicationContext)
-        shellExecutor = ShellExecutor(applicationContext)
-        httpDaemon = LocalHttpDaemon(
-            applicationContext,
-            workspaceManager,
-            shellExecutor
-        ) { statusText, busy ->
+        // Zero network or blocking disk IO on Main Thread!
+        runtime = OpenCodeRuntime.getInstance(applicationContext)
+        runtime.statusListener = { statusText, busy ->
             updateForegroundNotification(statusText, busy)
         }
-        httpDaemon.start()
 
-        val initialNotification = buildNotification(
-            getString(R.string.daemon_notification_idle),
-            false
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                initialNotification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        try {
+            createNotificationChannel()
+            val initialNotification = buildNotification(
+                getString(R.string.daemon_notification_idle),
+                false
             )
-        } else {
-            startForeground(NOTIFICATION_ID, initialNotification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    initialNotification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, initialNotification)
+            }
+        } catch (_: Throwable) {
+            // Never crash on OEM Android foreground service restrictions
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_DAEMON) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            try {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } catch (_: Throwable) {
+            }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -79,11 +75,11 @@ class OpenCodeDaemonService : Service() {
         try {
             if (busy) {
                 if (wakeLock?.isHeld != true) {
-                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                    wakeLock = pm.newWakeLock(
+                    val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    wakeLock = pm?.newWakeLock(
                         PowerManager.PARTIAL_WAKE_LOCK,
                         "OpenCode::AgentWakeLock"
-                    ).apply {
+                    )?.apply {
                         acquire(15 * 60 * 1000L)
                     }
                 }
@@ -92,30 +88,10 @@ class OpenCodeDaemonService : Service() {
                     wakeLock?.release()
                 }
             }
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(NOTIFICATION_ID, buildNotification(statusText, busy))
-        } catch (_: Exception) {}
-    }
-
-    fun sendTaskAlertNotification(title: String, body: String) {
-        try {
-            val openIntent = Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            val pi = PendingIntent.getActivity(this, 102, openIntent, pendingFlags)
-
-            val notification = Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_stat_opencode)
-                .setContentTitle(title)
-                .setContentText(body)
-                .setContentIntent(pi)
-                .setAutoCancel(true)
-                .build()
-
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify((System.currentTimeMillis() % 10000).toInt() + 5000, notification)
-        } catch (_: Exception) {}
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.notify(NOTIFICATION_ID, buildNotification(statusText, busy))
+        } catch (_: Throwable) {
+        }
     }
 
     private fun buildNotification(statusText: String, busy: Boolean): Notification {
@@ -135,13 +111,13 @@ class OpenCodeDaemonService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.daemon_channel_name),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Поддерживает локальный демон и выполнение ИИ-агента OpenCode в фоновом режиме"
+            description = "OpenCode local coding environment background service"
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)
@@ -150,8 +126,8 @@ class OpenCodeDaemonService : Service() {
     override fun onDestroy() {
         try {
             if (wakeLock?.isHeld == true) wakeLock?.release()
-        } catch (_: Exception) {}
-        if (::httpDaemon.isInitialized) httpDaemon.stop()
+        } catch (_: Throwable) {
+        }
         super.onDestroy()
     }
 }
