@@ -358,36 +358,42 @@ export async function discoverModelsFromEndpoint(
   },
 ): Promise<{ models: DiscoveredModelInfo[]; endpointUsed?: string; error?: string }> {
   const base = normalizeBaseUrl(options.baseURL, options.protocol)
-  const candidates: string[] = []
+  const candidatesSet = new Set<string>()
 
   if (base.endsWith("/v1") || base.endsWith("/openai") || /\/v\d+[a-z]*$/i.test(base)) {
-    candidates.push(`${base}/models`)
+    candidatesSet.add(`${base}/models`)
     const root = base.replace(/\/v1$/i, "")
     if (root !== base) {
-      candidates.push(`${root}/api/tags`)
+      candidatesSet.add(`${root}/models`)
+      candidatesSet.add(`${root}/api/v1/models`)
+      candidatesSet.add(`${root}/api/tags`)
     }
   } else {
-    candidates.push(`${base}/v1/models`)
-    candidates.push(`${base}/models`)
-    candidates.push(`${base}/api/tags`)
+    candidatesSet.add(`${base}/v1/models`)
+    candidatesSet.add(`${base}/models`)
+    candidatesSet.add(`${base}/api/v1/models`)
+    candidatesSet.add(`${base}/api/models`)
+    candidatesSet.add(`${base}/api/tags`)
   }
 
   // Google native models endpoint fallback if generativelanguage.googleapis.com is used
   if (base.includes("generativelanguage.googleapis.com") && options.apiKey) {
-    candidates.push(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(options.apiKey)}`)
+    candidatesSet.add(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(options.apiKey.trim())}`)
   }
+
+  const candidates = Array.from(candidatesSet)
 
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(options.headers ?? {}),
   }
-  if (options.apiKey?.trim()) {
-    const key = options.apiKey.trim()
+  const trimmedKey = options.apiKey?.trim() ?? ""
+  if (trimmedKey) {
     if (!headers["Authorization"] && !headers["authorization"]) {
-      headers["Authorization"] = `Bearer ${key}`
+      headers["Authorization"] = `Bearer ${trimmedKey}`
     }
     if (options.protocol === "anthropic" || base.includes("anthropic")) {
-      headers["x-api-key"] = key
+      headers["x-api-key"] = trimmedKey
       headers["anthropic-version"] = headers["anthropic-version"] ?? "2023-06-01"
     }
   }
@@ -396,10 +402,18 @@ export async function discoverModelsFromEndpoint(
   for (const url of candidates) {
     try {
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 10000)
+      const timer = setTimeout(() => controller.abort(), 12000)
       let res: Response
       try {
         res = await host.httpFetch(url, { method: "GET", headers, signal: controller.signal })
+        // Retry with x-api-key header if custom/Anthropic proxy returned 401/403 on Bearer
+        if ((res.status === 401 || res.status === 403) && trimmedKey && !headers["x-api-key"]) {
+          res = await host.httpFetch(url, {
+            method: "GET",
+            headers: { ...headers, "x-api-key": trimmedKey, "anthropic-version": "2023-06-01" },
+            signal: controller.signal,
+          })
+        }
       } finally {
         clearTimeout(timer)
       }
@@ -422,7 +436,13 @@ export async function discoverModelsFromEndpoint(
           ? json.data
           : Array.isArray(json?.models)
             ? json.models
-            : []
+            : Array.isArray(json?.result?.data)
+              ? json.result.data
+              : Array.isArray(json?.result?.models)
+                ? json.result.models
+                : Array.isArray(json?.result)
+                  ? json.result
+                  : []
 
       const parsed: DiscoveredModelInfo[] = []
       const seen = new Set<string>()
@@ -700,18 +720,12 @@ export class OpenCodeV2Engine {
 
     list.push({
       id: "custom-provider",
-      name: "Custom Provider (OpenAI / Anthropic + Auto Models)",
+      name: "Custom Provider (API Key + Auto Models)",
       metadata: { custom: true },
       methods: [
         {
           type: "key",
           label: "Connect with Base URL + API Key (auto-fetches /v1/models)",
-          form: CUSTOM_PROVIDER_FORM_FIELDS,
-        },
-        {
-          id: "keyless-local",
-          type: "external",
-          label: "Connect without API Key (Local Ollama / vLLM / LAN)",
           form: CUSTOM_PROVIDER_FORM_FIELDS,
         },
       ],
@@ -838,13 +852,14 @@ export class OpenCodeV2Engine {
     const providers: any[] = []
     const models: any[] = []
 
-    const pushModel = (providerID: string, pkg: string, m: DiscoveredModelInfo, index: number) => {
+    const pushModel = (providerID: string, pkg: string, m: DiscoveredModelInfo, _index: number) => {
       models.push({
         id: m.id,
         modelID: m.id,
         providerID,
         type: "chat",
         name: m.name || m.id,
+        family: m.id,
         package: pkg,
         ...(m.reasoning ? { compatibility: { reasoningField: "reasoning_content" } } : {}),
         capabilities: {
@@ -854,7 +869,7 @@ export class OpenCodeV2Engine {
           temperature: true,
         },
         variants: [],
-        time: { released: Date.now() - index * 1000 },
+        time: { released: 0 },
         cost: [
           {
             input: m.inputCost ?? 0,
@@ -960,12 +975,19 @@ export class OpenCodeV2Engine {
             .filter(Boolean)
         : (existing?.extraModels ?? [])
 
-    const discovery = await discoverModelsFromEndpoint(this.host, {
-      baseURL,
-      apiKey,
-      protocol,
-      headers: input.headers ?? existing?.headers,
-    })
+    const preDiscovered = Array.isArray((input as any).discoveredModels)
+      ? ((input as any).discoveredModels as DiscoveredModelInfo[]).filter((m) => m && typeof m.id === "string" && m.id.trim())
+      : []
+
+    const discovery =
+      preDiscovered.length > 0
+        ? { models: preDiscovered, endpointUsed: "auto-discovered" }
+        : await discoverModelsFromEndpoint(this.host, {
+            baseURL,
+            apiKey,
+            protocol,
+            headers: input.headers ?? existing?.headers,
+          })
 
     const mergedModels = new Map<string, DiscoveredModelInfo>()
     for (const m of discovery.models) mergedModels.set(m.id, m)
@@ -1259,6 +1281,9 @@ export class OpenCodeV2Engine {
     const cleanRel = (raw: string) => {
       const trimmed = String(raw || "").trim()
       if (trimmed.startsWith(dir + "/")) return trimmed.slice(dir.length + 1)
+      if (trimmed.startsWith("/storage/") || trimmed.startsWith("/sdcard/") || trimmed.startsWith("/mnt/")) {
+        return trimmed
+      }
       return trimmed.replace(/^\/+/, "")
     }
 
@@ -1433,24 +1458,42 @@ export class OpenCodeV2Engine {
       }))
     }
 
-    let res = await this.host.httpFetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: options.signal,
-    })
+    const doOpenAiFetch = async (reqBody: Record<string, unknown>) => {
+      let lastErr: any = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (options.signal.aborted) break
+        try {
+          const r = await this.host.httpFetch(endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(reqBody),
+            signal: options.signal,
+          })
+          if ((r.status === 502 || r.status === 503 || r.status === 504) && attempt < 2) {
+            const peek = await r.clone().text().catch(() => "")
+            if (/unexpected end of stream|reset|eof|broken pipe|timeout/i.test(peek) || r.status >= 502) {
+              await new Promise((res) => setTimeout(res, 300 * (attempt + 1)))
+              continue
+            }
+          }
+          return r
+        } catch (err: any) {
+          lastErr = err
+          if (options.signal.aborted || attempt === 2) throw err
+          await new Promise((res) => setTimeout(res, 300 * (attempt + 1)))
+        }
+      }
+      throw lastErr ?? new Error("Connection failed")
+    }
+
+    let res = await doOpenAiFetch(body)
 
     // Automatic retry without `tools` if a custom/local model rejects tool definitions with HTTP 400
     if (!res.ok && res.status === 400 && body.tools) {
       const errBody = await res.text().catch(() => "")
       if (/tool|function/i.test(errBody)) {
         delete body.tools
-        res = await this.host.httpFetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal: options.signal,
-        })
+        res = await doOpenAiFetch(body)
       } else {
         throw new Error(`Provider returned HTTP ${res.status}: ${errBody.slice(0, 400)}`)
       }
@@ -1532,8 +1575,18 @@ export class OpenCodeV2Engine {
     const usage = { input: 0, output: 0, reasoning: 0 }
     const toolMap = new Map<number, { id: string; name: string; arguments: string; started: boolean }>()
 
+    let sawDone = false
     while (true) {
-      const { done, value } = await reader.read()
+      let done = false
+      let value: Uint8Array | undefined
+      try {
+        const chunkRead = await reader.read()
+        done = chunkRead.done
+        value = chunkRead.value
+      } catch (readErr) {
+        if (sawDone || text.length > 0 || toolMap.size > 0) break
+        throw readErr
+      }
       if (done) break
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split("\n")
@@ -1543,7 +1596,11 @@ export class OpenCodeV2Engine {
         const line = rawLine.trim()
         if (!line.startsWith("data:")) continue
         const payload = line.slice(5).trim()
-        if (!payload || payload === "[DONE]") continue
+        if (!payload) continue
+        if (payload === "[DONE]") {
+          sawDone = true
+          continue
+        }
         let chunk: any
         try {
           chunk = JSON.parse(payload)
@@ -1901,7 +1958,7 @@ export class OpenCodeV2Engine {
           if (toolParts.length > 0) {
             llmHistory.push({
               role: "assistant",
-              content: textParts || null,
+              content: textParts || "",
               tool_calls: toolParts.map((tp: any) => ({
                 id: tp.id,
                 type: "function",
@@ -2079,7 +2136,7 @@ export class OpenCodeV2Engine {
         if (stepResult.toolCalls.length > 0) {
           llmHistory.push({
             role: "assistant",
-            content: stepResult.text || null,
+            content: stepResult.text || "",
             tool_calls: stepResult.toolCalls.map((tc) => ({
               id: tc.id,
               type: "function",
@@ -2571,7 +2628,8 @@ export class OpenCodeV2Engine {
           apiKey: body.apiKey !== undefined ? String(body.apiKey) : undefined,
           headers: body.headers,
           extraModels: body.extraModels,
-        })
+          ...(Array.isArray(body.discoveredModels) ? { discoveredModels: body.discoveredModels } : {}),
+        } as any)
         return json(res, 201)
       }
 

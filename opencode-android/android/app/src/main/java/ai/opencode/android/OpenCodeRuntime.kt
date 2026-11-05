@@ -50,6 +50,11 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
     var statusListener: ((String, Boolean) -> Unit)? = null
 
     private fun startBackgroundInit() {
+        try {
+            System.setProperty("http.keepAlive", "false")
+            System.setProperty("http.maxConnections", "0")
+        } catch (_: Throwable) {
+        }
         ioExecutor.execute {
             try {
                 workspaceManager.ensureInitialized()
@@ -215,67 +220,87 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
         val headersObj = payload.optJSONObject("headers")
         val bodyStr = if (payload.has("body") && !payload.isNull("body")) payload.optString("body", "") else null
 
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 25000
-                readTimeout = 120000
-                instanceFollowRedirects = true
-                if (headersObj != null) {
-                    val keys = headersObj.keys()
-                    while (keys.hasNext()) {
-                        val k = keys.next()
-                        setRequestProperty(k, headersObj.optString(k, ""))
-                    }
-                }
-                if (bodyStr != null && method != "GET" && method != "HEAD") {
-                    doOutput = true
-                    val bytes = bodyStr.toByteArray(Charsets.UTF_8)
-                    outputStream.use { os ->
-                        os.write(bytes)
-                        os.flush()
-                    }
-                }
-            }
-
-            val code = conn.responseCode
-            val contentType = conn.contentType ?: "application/json; charset=utf-8"
-            val stream = try {
-                if (code in 200..399) conn.inputStream else (conn.errorStream ?: conn.inputStream)
-            } catch (_: Throwable) {
-                conn.errorStream
-            }
-
-            val bodyText = if (stream != null) {
-                BufferedInputStream(stream).use { bis ->
-                    val baos = ByteArrayOutputStream()
-                    val buf = ByteArray(8192)
-                    var n = bis.read(buf)
-                    while (n != -1) {
-                        baos.write(buf, 0, n)
-                        n = bis.read(buf)
-                    }
-                    baos.toString("UTF-8")
-                }
-            } else {
-                ""
-            }
-
-            JSONObject()
-                .put("status", code)
-                .put("contentType", contentType)
-                .put("body", bodyText)
-        } catch (t: Throwable) {
-            JSONObject()
-                .put("status", 502)
-                .put("contentType", "application/json")
-                .put("body", JSONObject().put("error", t.message ?: "Network error").toString())
-        } finally {
+        var lastError: Throwable? = null
+        for (attempt in 1..3) {
+            var conn: HttpURLConnection? = null
+            val baos = ByteArrayOutputStream()
+            var code = 0
+            var contentType = "application/json; charset=utf-8"
             try {
-                conn?.disconnect()
-            } catch (_: Throwable) {
+                conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                    requestMethod = method
+                    useCaches = false
+                    connectTimeout = 25000
+                    readTimeout = 120000
+                    instanceFollowRedirects = true
+                    setRequestProperty("Connection", "close")
+                    setRequestProperty("Accept-Encoding", "identity")
+                    if (headersObj != null) {
+                        val keys = headersObj.keys()
+                        while (keys.hasNext()) {
+                            val k = keys.next()
+                            setRequestProperty(k, headersObj.optString(k, ""))
+                        }
+                    }
+                    if (bodyStr != null && method != "GET" && method != "HEAD") {
+                        doOutput = true
+                        val bytes = bodyStr.toByteArray(Charsets.UTF_8)
+                        setFixedLengthStreamingMode(bytes.size)
+                        outputStream.use { os ->
+                            os.write(bytes)
+                            os.flush()
+                        }
+                    }
+                }
+
+                code = conn.responseCode
+                contentType = conn.contentType ?: "application/json; charset=utf-8"
+                val stream = try {
+                    if (code in 200..399) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                } catch (_: Throwable) {
+                    conn.errorStream
+                }
+
+                if (stream != null) {
+                    BufferedInputStream(stream).use { bis ->
+                        val buf = ByteArray(8192)
+                        var n = bis.read(buf)
+                        while (n != -1) {
+                            baos.write(buf, 0, n)
+                            n = bis.read(buf)
+                        }
+                    }
+                }
+
+                return JSONObject()
+                    .put("status", code)
+                    .put("contentType", contentType)
+                    .put("body", baos.toString("UTF-8"))
+            } catch (t: Throwable) {
+                lastError = t
+                if (code in 200..299 && baos.size() > 0) {
+                    return JSONObject()
+                        .put("status", code)
+                        .put("contentType", contentType)
+                        .put("body", baos.toString("UTF-8"))
+                }
+                if (attempt < 3) {
+                    try {
+                        Thread.sleep(250L * attempt)
+                    } catch (_: Throwable) {
+                    }
+                }
+            } finally {
+                try {
+                    conn?.disconnect()
+                } catch (_: Throwable) {
+                }
             }
         }
+
+        return JSONObject()
+            .put("status", 502)
+            .put("contentType", "application/json")
+            .put("body", JSONObject().put("error", lastError?.message ?: "Network error").toString())
     }
 }

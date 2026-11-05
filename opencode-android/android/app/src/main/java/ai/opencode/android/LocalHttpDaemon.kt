@@ -190,6 +190,7 @@ class LocalHttpDaemon(private val runtime: OpenCodeRuntime) {
             }
         }
 
+        var headersCommitted = false
         try {
             val req = JSONObject(bodyStr)
             val targetUrl = req.optString("url", "")
@@ -197,30 +198,60 @@ class LocalHttpDaemon(private val runtime: OpenCodeRuntime) {
             val headersObj = req.optJSONObject("headers")
             val payloadBody = if (req.has("body") && !req.isNull("body")) req.optString("body", "") else null
 
-            conn = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = targetMethod
-                connectTimeout = 25000
-                readTimeout = 180000
-                instanceFollowRedirects = true
-                if (headersObj != null) {
-                    val keys = headersObj.keys()
-                    while (keys.hasNext()) {
-                        val k = keys.next()
-                        setRequestProperty(k, headersObj.optString(k, ""))
+            var upstreamCode = 502
+            var lastConnectErr: Throwable? = null
+
+            for (attempt in 1..3) {
+                try {
+                    conn = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
+                        requestMethod = targetMethod
+                        useCaches = false
+                        connectTimeout = 25000
+                        readTimeout = 180000
+                        instanceFollowRedirects = true
+                        setRequestProperty("Connection", "close")
+                        setRequestProperty("Accept-Encoding", "identity")
+                        if (headersObj != null) {
+                            val keys = headersObj.keys()
+                            while (keys.hasNext()) {
+                                val k = keys.next()
+                                setRequestProperty(k, headersObj.optString(k, ""))
+                            }
+                        }
+                        if (payloadBody != null && targetMethod != "GET" && targetMethod != "HEAD") {
+                            doOutput = true
+                            val outBytes = payloadBody.toByteArray(Charsets.UTF_8)
+                            setFixedLengthStreamingMode(outBytes.size)
+                            outputStream.use { os ->
+                                os.write(outBytes)
+                                os.flush()
+                            }
+                        }
                     }
-                }
-                if (payloadBody != null && targetMethod != "GET" && targetMethod != "HEAD") {
-                    doOutput = true
-                    val outBytes = payloadBody.toByteArray(Charsets.UTF_8)
-                    outputStream.use { os ->
-                        os.write(outBytes)
-                        os.flush()
+                    upstreamCode = conn!!.responseCode
+                    lastConnectErr = null
+                    break
+                } catch (connectErr: Throwable) {
+                    lastConnectErr = connectErr
+                    try {
+                        conn?.disconnect()
+                    } catch (_: Throwable) {
+                    }
+                    conn = null
+                    if (attempt < 3) {
+                        try {
+                            Thread.sleep(250L * attempt)
+                        } catch (_: Throwable) {
+                        }
                     }
                 }
             }
 
-            val upstreamCode = conn.responseCode
-            val upstreamType = (conn.contentType ?: "application/json; charset=utf-8")
+            if (lastConnectErr != null || conn == null) {
+                throw (lastConnectErr ?: IllegalStateException("Upstream connection failed"))
+            }
+
+            val upstreamType = (conn!!.contentType ?: "application/json; charset=utf-8")
                 .replace("\r", "")
                 .replace("\n", "")
 
@@ -238,29 +269,37 @@ class LocalHttpDaemon(private val runtime: OpenCodeRuntime) {
             }
             out.write(respHeader.toByteArray(Charsets.UTF_8))
             out.flush()
+            headersCommitted = true
 
             val upstreamStream = try {
-                if (upstreamCode in 200..399) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+                if (upstreamCode in 200..399) conn!!.inputStream else (conn!!.errorStream ?: conn!!.inputStream)
             } catch (_: Throwable) {
-                conn.errorStream
+                conn!!.errorStream
             }
 
             if (upstreamStream != null) {
                 upstreamStream.use { stream ->
                     val buf = ByteArray(4096)
-                    var n = stream.read(buf)
-                    while (n != -1) {
+                    while (true) {
+                        val n = try {
+                            stream.read(buf)
+                        } catch (_: Throwable) {
+                            // Upstream SSE proxy closed chunked socket after [DONE] without final 0-chunk
+                            -1
+                        }
+                        if (n == -1) break
                         out.write(buf, 0, n)
                         out.flush()
-                        n = stream.read(buf)
                     }
                 }
             }
         } catch (t: Throwable) {
-            val errJson = JSONObject().put("error", JSONObject().put("message", t.message ?: "Upstream connection failed")).toString()
-            try {
-                writeJsonResponse(out, 502, "Bad Gateway", errJson)
-            } catch (_: Throwable) {
+            if (!headersCommitted) {
+                val errJson = JSONObject().put("error", JSONObject().put("message", t.message ?: "Upstream connection failed")).toString()
+                try {
+                    writeJsonResponse(out, 502, "Bad Gateway", errJson)
+                } catch (_: Throwable) {
+                }
             }
         } finally {
             if (isCompletion) {

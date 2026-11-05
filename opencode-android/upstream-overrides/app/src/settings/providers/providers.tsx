@@ -182,6 +182,20 @@ export const SettingsProviders: Component<{
   }
 
   const connect = (provider?: string) => {
+    if (provider === "custom-provider") {
+      openCustomProviderDialog()
+      return
+    }
+    const existingCustom = provider ? providers.all().get(provider) : undefined
+    if (existingCustom?.options?.custom) {
+      openCustomProviderDialog({
+        id: existingCustom.id,
+        name: existingCustom.name,
+        baseURL: typeof existingCustom.options.baseURL === "string" ? existingCustom.options.baseURL : "",
+        protocol: existingCustom.options.protocol === "anthropic" ? "anthropic" : "openai",
+      })
+      return
+    }
     // The list stays as it was while the dialog connects, so a new sign-in that briefly drops the
     // Console workspace providers from the catalog can't flash rows behind the dialog.
     setState("held", available())
@@ -503,6 +517,13 @@ export const SettingsProviders: Component<{
                           </div>
                           <div class="flex items-center gap-1.5">
                           <Show when={Boolean(item.options?.custom)}>
+                            <Button
+                              size="normal"
+                              variant="ghost-muted"
+                              onClick={() => connect(item.id)}
+                            >
+                              API Key / Edit
+                            </Button>
                             <Button
                               size="normal"
                               variant="ghost-muted"

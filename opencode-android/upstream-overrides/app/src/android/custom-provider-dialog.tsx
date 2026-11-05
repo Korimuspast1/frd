@@ -4,7 +4,7 @@ import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Icon } from "@opencode/ui/icon"
 import { Loader } from "@opencode/ui/loader"
-import { createSignal, For, Show, type Component } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Component } from "solid-js"
 import { usePlatform } from "@/runtime/platform/platform"
 import { useServerSDK } from "@/runtime/server/client"
 import { useData } from "@/runtime/server/current"
@@ -16,17 +16,42 @@ interface DiscoveredPreviewModel {
   name: string
   contextWindow: number
   maxOutput: number
+  vision?: boolean
+  reasoning?: boolean
+  tools?: boolean
 }
 
 const PRESETS = [
-  { label: "Custom OpenAI URL", name: "", baseURL: "https://api.example.com/v1", protocol: "openai" as const },
   { label: "OpenRouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", protocol: "openai" as const },
   { label: "DeepSeek", name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", protocol: "openai" as const },
+  { label: "Gemini (OpenAI URL)", name: "Gemini Custom", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", protocol: "openai" as const },
   { label: "Groq", name: "Groq", baseURL: "https://api.groq.com/openai/v1", protocol: "openai" as const },
   { label: "Together AI", name: "Together AI", baseURL: "https://api.together.xyz/v1", protocol: "openai" as const },
   { label: "Ollama / LAN", name: "Ollama LAN", baseURL: "http://127.0.0.1:11434/v1", protocol: "openai" as const },
   { label: "Anthropic Proxy", name: "Anthropic Custom", baseURL: "https://api.anthropic.com/v1", protocol: "anthropic" as const },
 ]
+
+function inferProviderNameFromUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim()
+  if (!trimmed) return ""
+  try {
+    const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+    const host = new URL(withProto).hostname.toLowerCase()
+    if (host.includes("openrouter")) return "OpenRouter"
+    if (host.includes("deepseek")) return "DeepSeek"
+    if (host.includes("generativelanguage.googleapis")) return "Google Gemini"
+    if (host.includes("groq")) return "Groq"
+    if (host.includes("together")) return "Together AI"
+    if (host.includes("fireworks")) return "Fireworks AI"
+    if (host.includes("mistral")) return "Mistral"
+    if (host.includes("anthropic")) return "Anthropic Custom"
+    if (host.includes("openai")) return "OpenAI Custom"
+    if (host === "127.0.0.1" || host === "localhost") return "Local Provider"
+    return host.replace(/^api\./, "")
+  } catch {
+    return ""
+  }
+}
 
 export const DialogCustomProvider: Component<{
   directory?: string
@@ -45,16 +70,22 @@ export const DialogCustomProvider: Component<{
   const global = useGlobal()
 
   const [name, setName] = createSignal(props.initial?.name ?? "")
+  const [nameTouched, setNameTouched] = createSignal(Boolean(props.initial?.name))
   const [baseURL, setBaseURL] = createSignal(props.initial?.baseURL ?? "")
   const [protocol, setProtocol] = createSignal<"openai" | "anthropic">(props.initial?.protocol ?? "openai")
   const [apiKey, setApiKey] = createSignal("")
+  const [showKey, setShowKey] = createSignal(false)
   const [extraModels, setExtraModels] = createSignal("")
+  const [modelFilter, setModelFilter] = createSignal("")
   const [discovering, setDiscovering] = createSignal(false)
   const [saving, setSaving] = createSignal(false)
   const [discovered, setDiscovered] = createSignal<DiscoveredPreviewModel[]>([])
+  const [uncheckedIds, setUncheckedIds] = createSignal<Set<string>>(new Set())
   const [endpointUsed, setEndpointUsed] = createSignal<string | undefined>(undefined)
   const [statusMessage, setStatusMessage] = createSignal<string | undefined>(undefined)
   const [errorMessage, setErrorMessage] = createSignal<string | undefined>(undefined)
+
+  let probeReqCounter = 0
 
   const doFetch = () => platform.fetch ?? globalThis.fetch
   const apiUrl = (path: string) => {
@@ -62,63 +93,133 @@ export const DialogCustomProvider: Component<{
     return `${base}${path}`
   }
 
-  const probeModels = async () => {
-    if (!baseURL().trim()) {
-      setErrorMessage("Please enter an API Base URL first (e.g. https://openrouter.ai/api/v1)")
+  const looksQueryableUrl = (raw: string) => {
+    const t = raw.trim()
+    if (t.length < 6) return false
+    return t.includes(".") || t.includes("localhost") || t.includes("127.0.0.1") || /:\d+/.test(t)
+  }
+
+  const probeModels = async (silentIfAuthNeeded = false) => {
+    const cleanUrl = baseURL().trim()
+    if (!cleanUrl) {
+      if (!silentIfAuthNeeded) {
+        setErrorMessage("Введите Base URL провайдера (например https://openrouter.ai/api/v1)")
+      }
       return
     }
+    const reqId = ++probeReqCounter
     setDiscovering(true)
-    setErrorMessage(undefined)
-    setStatusMessage(undefined)
+    if (!silentIfAuthNeeded) {
+      setErrorMessage(undefined)
+    }
+
     try {
       const res = await doFetch()(apiUrl("/api/android/discover-models"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          baseURL: baseURL().trim(),
+          baseURL: cleanUrl,
           apiKey: apiKey().trim() || undefined,
           protocol: protocol(),
         }),
       })
+      if (reqId !== probeReqCounter) return
       const json = await res.json()
       const list: DiscoveredPreviewModel[] = Array.isArray(json.models) ? json.models : []
-      setDiscovered(list)
-      setEndpointUsed(json.endpointUsed)
       if (list.length > 0) {
-        setStatusMessage(`Auto-discovered ${list.length} models from ${json.endpointUsed ?? "/v1/models"}`)
+        setDiscovered(list)
+        setUncheckedIds(new Set())
+        setEndpointUsed(json.endpointUsed)
+        setErrorMessage(undefined)
+        setStatusMessage(`Автоматически подхвачено моделей: ${list.length}`)
       } else {
-        setErrorMessage(
-          json.error
-            ? `${json.error}. You can still save with Fallback Model IDs below.`
-            : "0 models returned by /v1/models. Enter Fallback Model IDs if your server hides /models.",
-        )
+        const errStr = String(json.error ?? "")
+        if (silentIfAuthNeeded && !apiKey().trim() && /401|403|unauthorized|key/i.test(errStr)) {
+          setStatusMessage(undefined)
+          setErrorMessage("Введите API Key ниже — модели подхватятся автоматически.")
+        } else {
+          setStatusMessage(undefined)
+          setErrorMessage(
+            errStr
+              ? `Не удалось получить /v1/models (${errStr}). Проверьте Base URL / API Key или укажите ID моделей вручную ниже.`
+              : "Эндпоинт /v1/models вернул 0 моделей. Проверьте API Key или укажите ID моделей ниже.",
+          )
+        }
       }
     } catch (err: any) {
-      setErrorMessage(err?.message ? String(err.message) : "Failed to query /v1/models")
+      if (reqId !== probeReqCounter) return
+      if (!silentIfAuthNeeded) {
+        setErrorMessage(err?.message ? String(err.message) : "Ошибка запроса к /v1/models")
+      }
     } finally {
-      setDiscovering(false)
+      if (reqId === probeReqCounter) {
+        setDiscovering(false)
+      }
     }
+  }
+
+  // Automatic debounced model discovery whenever Base URL, API Key, or Protocol changes!
+  createEffect(() => {
+    const u = baseURL().trim()
+    const k = apiKey().trim()
+    const p = protocol()
+    void k
+    void p
+
+    if (!looksQueryableUrl(u)) return
+
+    const timer = setTimeout(() => {
+      void probeModels(true)
+    }, 450)
+
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  const filteredModels = createMemo(() => {
+    const q = modelFilter().trim().toLowerCase()
+    const all = discovered()
+    if (!q) return all
+    return all.filter((m) => `${m.id} ${m.name}`.toLowerCase().includes(q))
+  })
+
+  const selectedDiscoveredModels = () => {
+    const unchecked = uncheckedIds()
+    return discovered().filter((m) => !unchecked.has(m.id))
+  }
+
+  const toggleModelCheck = (id: string) => {
+    setUncheckedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const saveProvider = async (e?: Event) => {
     e?.preventDefault()
-    if (!name().trim() || !baseURL().trim()) {
-      setErrorMessage("Provider Name and API Base URL are required.")
+    const cleanUrl = baseURL().trim()
+    if (!cleanUrl) {
+      setErrorMessage("Укажите API Base URL провайдера.")
       return
     }
+    const finalName = name().trim() || inferProviderNameFromUrl(cleanUrl) || "Custom Provider"
     setSaving(true)
     setErrorMessage(undefined)
+
     try {
+      const chosenModels = selectedDiscoveredModels()
       const res = await doFetch()(apiUrl("/api/android/custom-providers"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: props.initial?.id,
-          name: name().trim(),
-          baseURL: baseURL().trim(),
+          name: finalName,
+          baseURL: cleanUrl,
           protocol: protocol(),
           apiKey: apiKey().trim(),
           extraModels: extraModels().trim(),
+          ...(chosenModels.length > 0 ? { discoveredModels: chosenModels } : {}),
         }),
       })
       const json = await res.json()
@@ -127,40 +228,61 @@ export const DialogCustomProvider: Component<{
       }
 
       const providerObj = json.provider
-      const location = props.directory ? { directory: props.directory } : undefined
-      data.location.integration.invalidate(location)
-      data.location.provider.invalidate(location)
-      data.location.model.invalidate(location)
+      const defaultLoc = data.location.default()
+      const activeLoc = props.directory ? { directory: props.directory } : undefined
+
+      data.location.integration.invalidate(defaultLoc)
+      data.location.provider.invalidate(defaultLoc)
+      data.location.model.invalidate(defaultLoc)
+      if (activeLoc) {
+        data.location.integration.invalidate(activeLoc)
+        data.location.provider.invalidate(activeLoc)
+        data.location.model.invalidate(activeLoc)
+      }
+
       await Promise.all([
-        data.location.integration.sync(location),
-        data.location.provider.sync(location),
-        data.location.model.sync(location),
+        data.location.integration.sync(defaultLoc),
+        data.location.provider.sync(defaultLoc),
+        data.location.model.sync(defaultLoc),
+        ...(activeLoc
+          ? [
+              data.location.integration.sync(activeLoc),
+              data.location.provider.sync(activeLoc),
+              data.location.model.sync(activeLoc),
+            ]
+          : []),
       ]).catch(() => undefined)
 
       if (providerObj?.discoveredModels?.length) {
-        global.models.show(
-          providerObj.discoveredModels.map((m: { id: string }) => ({
-            providerID: providerObj.id,
-            modelID: m.id,
-          })),
-        )
+        const modelKeys = providerObj.discoveredModels.map((m: { id: string }) => ({
+          providerID: providerObj.id,
+          modelID: m.id,
+        }))
+        global.models.show(modelKeys)
+        const firstKey = modelKeys[0]
+        if (firstKey) {
+          const existingRecent = global.models.store.recent.filter(
+            (r) => !(r.providerID === firstKey.providerID && r.modelID === firstKey.modelID),
+          )
+          global.models.set("recent", [firstKey, ...existingRecent].slice(0, 5))
+        }
       }
 
       const totalModels = providerObj?.discoveredModels?.length ?? 0
       showToast({
         variant: "success",
         icon: "circle-check",
-        title: `Connected ${providerObj?.name ?? name().trim()}`,
+        title: `Подключён ${providerObj?.name ?? finalName}`,
         description:
           totalModels > 0
-            ? `${totalModels} models automatically loaded & ready in model selector.`
-            : json.warning || "Provider saved.",
+            ? `Автоматически подхвачено моделей: ${totalModels}. Доступны в выборе модели!`
+            : json.warning || "Провайдер сохранён.",
       })
 
       props.onSaved?.(providerObj.id)
       dialog.close()
     } catch (err: any) {
-      setErrorMessage(err?.message ? String(err.message) : "Failed to save custom provider")
+      setErrorMessage(err?.message ? String(err.message) : "Не удалось сохранить провайдера")
     } finally {
       setSaving(false)
     }
@@ -168,26 +290,26 @@ export const DialogCustomProvider: Component<{
 
   return (
     <Dialog
-      containerClass="!self-start !rounded-[12px] !bg-v2-background-bg-base !mt-[max(8px,calc((100dvh_-_600px)/2))] !w-[min(calc(100vw_-_16px),600px)] !max-h-[calc(100dvh_-_16px)]"
+      containerClass="!self-start !rounded-[12px] !bg-v2-background-bg-base !mt-[max(8px,calc((100dvh_-_640px)/2))] !w-[min(calc(100vw_-_16px),600px)] !max-h-[calc(100dvh_-_16px)]"
       class="[font-family:var(--v2-font-family-sans)]"
     >
       <DialogHeader closeLabel="Close">
         <DialogTitleGroup
-          title="Add Custom Provider"
-          description="Connect any OpenAI-compatible or Anthropic endpoint — models are automatically fetched from /v1/models."
+          title="Кастомный провайдер (API Key + Авто-модели)"
+          description="Введите Base URL и API Key — список моделей автоматически подхватится с /v1/models."
         />
       </DialogHeader>
-      <DialogBody class="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
-        <form onSubmit={saveProvider} class="flex flex-col gap-3.5">
-          <div class="flex flex-wrap gap-1.5 pb-1">
+      <DialogBody class="min-h-0 flex-1 overflow-y-auto px-4 pb-5 sm:px-5">
+        <form onSubmit={saveProvider} class="flex flex-col gap-3">
+          <div class="flex flex-wrap gap-1.5">
             <For each={PRESETS}>
               {(preset) => (
                 <button
                   type="button"
                   class="rounded-md border border-v2-border-border-muted bg-v2-background-bg-surface px-2.5 py-1 text-[11.5px] font-[500] text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base transition-colors"
                   onClick={() => {
-                    if (preset.name && !name()) setName(preset.name)
-                    else if (preset.name) setName(preset.name)
+                    setName(preset.name)
+                    setNameTouched(true)
                     setBaseURL(preset.baseURL)
                     setProtocol(preset.protocol)
                   }}
@@ -198,40 +320,25 @@ export const DialogCustomProvider: Component<{
             </For>
           </div>
 
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label class="flex flex-col gap-1">
-              <span class="text-[12px] font-[520] text-v2-text-text-base">Provider Name *</span>
-              <input
-                type="text"
-                value={name()}
-                onInput={(e) => setName(e.currentTarget.value)}
-                placeholder="e.g. My vLLM / OpenRouter / DeepSeek"
-                class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
-                required
-              />
-            </label>
-
-            <label class="flex flex-col gap-1">
-              <span class="text-[12px] font-[520] text-v2-text-text-base">API Protocol</span>
-              <select
-                value={protocol()}
-                onChange={(e) => setProtocol(e.currentTarget.value === "anthropic" ? "anthropic" : "openai")}
-                class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-2.5 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
-              >
-                <option value="openai">OpenAI-Compatible (/v1/chat/completions)</option>
-                <option value="anthropic">Anthropic (/v1/messages)</option>
-              </select>
-            </label>
-          </div>
-
           <label class="flex flex-col gap-1">
-            <span class="text-[12px] font-[520] text-v2-text-text-base">API Base URL *</span>
+            <span class="text-[12px] font-[530] text-v2-text-text-base">1. API Base URL *</span>
             <div class="flex gap-2">
               <input
-                type="url"
+                type="text"
+                inputMode="url"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck={false}
                 value={baseURL()}
-                onInput={(e) => setBaseURL(e.currentTarget.value)}
-                placeholder="https://api.openai.com/v1 or http://192.168.1.10:11434/v1"
+                onInput={(e) => {
+                  const v = e.currentTarget.value
+                  setBaseURL(v)
+                  if (!nameTouched()) {
+                    const inferred = inferProviderNameFromUrl(v)
+                    if (inferred) setName(inferred)
+                  }
+                }}
+                placeholder="https://openrouter.ai/api/v1 или https://my-proxy.com/v1"
                 class="h-9 min-w-0 flex-1 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
                 required
               />
@@ -240,34 +347,79 @@ export const DialogCustomProvider: Component<{
                 variant="neutral"
                 size="normal"
                 disabled={discovering()}
-                onClick={() => void probeModels()}
+                onClick={() => void probeModels(false)}
               >
-                <Show when={discovering()} fallback={<span>Fetch Models</span>}>
+                <Show when={discovering()} fallback={<span>Найти модели</span>}>
                   <span class="flex items-center gap-1.5">
                     <Loader class="size-3.5" />
-                    <span>Fetching…</span>
+                    <span>Поиск…</span>
                   </span>
                 </Show>
               </Button>
             </div>
-            <span class="text-[11px] text-v2-text-text-faint">
-              Automatically queries GET /v1/models (and /models or /api/tags) on save or when clicking Fetch Models.
-            </span>
           </label>
 
           <label class="flex flex-col gap-1">
-            <span class="text-[12px] font-[520] text-v2-text-text-base">API Key (optional for local Ollama / LAN)</span>
-            <input
-              type="password"
-              value={apiKey()}
-              onInput={(e) => setApiKey(e.currentTarget.value)}
-              placeholder="sk-..."
-              autocomplete="off"
-              class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
-            />
+            <span class="text-[12px] font-[530] text-v2-text-text-base">2. API Key (ключ провайдера)</span>
+            <div class="flex gap-2">
+              <input
+                type={showKey() ? "text" : "password"}
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck={false}
+                value={apiKey()}
+                onInput={(e) => setApiKey(e.currentTarget.value)}
+                placeholder="sk-... / AIza... (вставьте API-ключ — модели подхватятся сами)"
+                autocomplete="off"
+                class="h-9 min-w-0 flex-1 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 font-mono text-[12.5px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+              />
+              <Button
+                type="button"
+                variant="ghost-muted"
+                size="normal"
+                onClick={() => setShowKey((v) => !v)}
+              >
+                {showKey() ? "Скрыть" : "Показать"}
+              </Button>
+            </div>
           </label>
 
-          <Show when={statusMessage()}>
+          <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] font-[520] text-v2-text-text-base">Название провайдера</span>
+              <input
+                type="text"
+                value={name()}
+                onInput={(e) => {
+                  setName(e.currentTarget.value)
+                  setNameTouched(true)
+                }}
+                placeholder="Подставится автоматически из URL"
+                class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+              />
+            </label>
+
+            <label class="flex flex-col gap-1">
+              <span class="text-[12px] font-[520] text-v2-text-text-base">Протокол API</span>
+              <select
+                value={protocol()}
+                onChange={(e) => setProtocol(e.currentTarget.value === "anthropic" ? "anthropic" : "openai")}
+                class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-2.5 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+              >
+                <option value="openai">OpenAI-совместимый (/chat/completions)</option>
+                <option value="anthropic">Anthropic (/v1/messages)</option>
+              </select>
+            </label>
+          </div>
+
+          <Show when={discovering()}>
+            <div class="flex items-center gap-2 rounded-md border border-v2-border-border-muted bg-v2-background-bg-surface px-3 py-2 text-[12px] text-v2-text-text-muted">
+              <Loader class="size-3.5 shrink-0" />
+              <span>Запрашиваем список моделей с сервера провайдера (/v1/models)…</span>
+            </div>
+          </Show>
+
+          <Show when={!discovering() && statusMessage()}>
             {(msg) => (
               <div class="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-600 dark:text-emerald-400">
                 <Icon name="circle-check" size="small" class="shrink-0" />
@@ -276,7 +428,7 @@ export const DialogCustomProvider: Component<{
             )}
           </Show>
 
-          <Show when={errorMessage()}>
+          <Show when={!discovering() && errorMessage()}>
             {(err) => (
               <div class="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
                 {err()}
@@ -285,53 +437,89 @@ export const DialogCustomProvider: Component<{
           </Show>
 
           <Show when={discovered().length > 0}>
-            <div class="flex flex-col gap-1.5 rounded-lg border border-v2-border-border-muted bg-v2-background-bg-surface p-2.5">
-              <div class="flex items-center justify-between">
+            <div class="flex flex-col gap-2 rounded-lg border border-v2-border-border-muted bg-v2-background-bg-surface p-2.5">
+              <div class="flex items-center justify-between gap-2">
                 <span class="text-[12px] font-[530] text-v2-text-text-base">
-                  Auto-Discovered Models
+                  Подхваченные модели ({selectedDiscoveredModels().length} из {discovered().length})
                 </span>
-                <Badge>{discovered().length} models</Badge>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    class="text-[11px] text-v2-text-text-muted underline hover:text-v2-text-text-base"
+                    onClick={() =>
+                      setUncheckedIds(
+                        uncheckedIds().size === 0 ? new Set(discovered().map((m) => m.id)) : new Set<string>(),
+                      )
+                    }
+                  >
+                    {uncheckedIds().size === 0 ? "Снять все" : "Выбрать все"}
+                  </button>
+                  <Badge>{discovered().length}</Badge>
+                </div>
               </div>
-              <div class="max-h-36 overflow-y-auto pr-1 text-[12px]">
-                <For each={discovered().slice(0, 80)}>
-                  {(m) => (
-                    <div class="flex items-center justify-between border-b border-v2-border-border-muted/50 py-1 last:border-b-0">
-                      <span class="truncate font-mono text-[11.5px] text-v2-text-text-base">{m.id}</span>
-                      <span class="ml-2 shrink-0 text-[11px] text-v2-text-text-faint">
-                        {Math.round((m.contextWindow || 128000) / 1024)}k ctx
-                      </span>
-                    </div>
-                  )}
+
+              <Show when={discovered().length > 6}>
+                <input
+                  type="search"
+                  value={modelFilter()}
+                  onInput={(e) => setModelFilter(e.currentTarget.value)}
+                  placeholder="Поиск по найденным моделям..."
+                  class="h-8 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2.5 text-[12px] text-v2-text-text-base outline-none"
+                />
+              </Show>
+
+              <div class="max-h-40 overflow-y-auto pr-1 text-[12px]">
+                <For each={filteredModels().slice(0, 200)}>
+                  {(m) => {
+                    const checked = () => !uncheckedIds().has(m.id)
+                    return (
+                      <label class="flex cursor-pointer items-center justify-between gap-2 border-b border-v2-border-border-muted/50 py-1.5 last:border-b-0">
+                        <span class="flex min-w-0 items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={checked()}
+                            onChange={() => toggleModelCheck(m.id)}
+                            class="size-3.5 shrink-0 accent-emerald-500"
+                          />
+                          <span class="truncate font-mono text-[11.5px] text-v2-text-text-base">{m.id}</span>
+                        </span>
+                        <span class="shrink-0 text-[11px] text-v2-text-text-faint">
+                          {Math.round((m.contextWindow || 128000) / 1024)}k
+                        </span>
+                      </label>
+                    )
+                  }}
                 </For>
               </div>
+
               <Show when={endpointUsed()}>
-                {(ep) => <span class="truncate text-[10.5px] text-v2-text-text-faint">Source: {ep()}</span>}
+                {(ep) => <span class="truncate text-[10.5px] text-v2-text-text-faint">Источник: {ep()}</span>}
               </Show>
             </div>
           </Show>
 
           <label class="flex flex-col gap-1">
-            <span class="text-[12px] font-[520] text-v2-text-text-muted">
-              Manual / Extra Model IDs (optional comma-separated fallback)
+            <span class="text-[11.5px] font-[500] text-v2-text-text-muted">
+              Дополнительные ID моделей вручную (необязательно, через запятую)
             </span>
             <input
               type="text"
               value={extraModels()}
               onInput={(e) => setExtraModels(e.currentTarget.value)}
-              placeholder="Leave empty for automatic /v1/models discovery, or e.g. gpt-4.1, my-model"
-              class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+              placeholder="Оставьте пустым для автоподхвата /v1/models"
+              class="h-8.5 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[12.5px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
             />
           </label>
 
           <div class="mt-1 flex items-center justify-end gap-2 border-t border-v2-border-border-muted pt-3">
             <Button type="button" variant="ghost-muted" onClick={() => dialog.close()}>
-              Cancel
+              Отмена
             </Button>
             <Button type="submit" variant="contrast" disabled={saving()}>
-              <Show when={saving()} fallback={<span>Save & Auto-Load Models</span>}>
+              <Show when={saving()} fallback={<span>Сохранить и подключить модели</span>}>
                 <span class="flex items-center gap-1.5">
                   <Loader class="size-3.5" />
-                  <span>Connecting…</span>
+                  <span>Подключение…</span>
                 </span>
               </Show>
             </Button>

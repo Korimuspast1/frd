@@ -330,10 +330,27 @@ class MainActivity : Activity() {
 
     private fun requestNotificationPermissionSafely() {
         try {
+            val perms = ArrayList<String>()
             if (Build.VERSION.SDK_INT >= 33) {
                 if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFICATIONS)
+                    perms.add(Manifest.permission.POST_NOTIFICATIONS)
                 }
+            }
+            if (Build.VERSION.SDK_INT < 30) {
+                if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                    perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                }
+            }
+            if (perms.isNotEmpty()) {
+                requestPermissions(perms.toTypedArray(), REQ_NOTIFICATIONS)
+            }
+            if (Build.VERSION.SDK_INT >= 30 && !android.os.Environment.isExternalStorageManager()) {
+                val intent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
             }
         } catch (_: Throwable) {
         }

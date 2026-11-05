@@ -48,31 +48,49 @@ class WorkspaceManager(private val context: Context) {
     fun resolveDirectoryOrDefault(directory: String): File {
         ensureInitialized()
         if (directory.isNotBlank()) {
-            val f = File(directory)
+            val normalized = if (directory.startsWith("/sdcard/")) {
+                "/storage/emulated/0/" + directory.removePrefix("/sdcard/")
+            } else {
+                directory
+            }
+            val f = File(normalized)
             if (f.exists() && f.isDirectory) return f
-            val bySlug = File(workspacesRoot, File(directory).name)
+            if (normalized.startsWith("/storage/") && f.mkdirs()) return f
+            val bySlug = File(workspacesRoot, File(normalized).name)
             if (bySlug.exists() && bySlug.isDirectory) return bySlug
         }
         return defaultProjectDir()
     }
 
+    private fun isAllowedExternalPath(path: String): Boolean {
+        return path.startsWith("/storage/") || path.startsWith("/sdcard/") || path.startsWith("/mnt/user/")
+    }
+
     fun safeResolveTarget(baseDir: File, relPath: String): File {
         if (relPath.isBlank() || relPath == ".") return baseDir.canonicalFile
-        val candidate = if (relPath.startsWith("/")) {
-            val abs = File(relPath).canonicalFile
+        val normalizedRel = if (relPath.startsWith("/sdcard/")) {
+            "/storage/emulated/0/" + relPath.removePrefix("/sdcard/")
+        } else {
+            relPath
+        }
+        if (isAllowedExternalPath(normalizedRel)) {
+            return File(normalizedRel).absoluteFile
+        }
+        val candidate = if (normalizedRel.startsWith("/")) {
+            val abs = File(normalizedRel).canonicalFile
             val rootCanon = workspacesRoot.canonicalFile
             val baseCanon = baseDir.canonicalFile
             if (abs.path.startsWith(baseCanon.path) || abs.path.startsWith(rootCanon.path)) {
                 abs
             } else {
-                File(baseDir, relPath.trimStart('/')).canonicalFile
+                File(baseDir, normalizedRel.trimStart('/')).canonicalFile
             }
         } else {
-            File(baseDir, relPath).canonicalFile
+            File(baseDir, normalizedRel).canonicalFile
         }
         val baseCanon = baseDir.canonicalFile
         val rootCanon = workspacesRoot.canonicalFile
-        if (!candidate.path.startsWith(baseCanon.path) && !candidate.path.startsWith(rootCanon.path)) {
+        if (!candidate.path.startsWith(baseCanon.path) && !candidate.path.startsWith(rootCanon.path) && !isAllowedExternalPath(candidate.path)) {
             throw SecurityException("Path escapes workspace: $relPath")
         }
         return candidate

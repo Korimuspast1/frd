@@ -292,6 +292,25 @@ function ProviderPicker(props: { directory?: string; onSelect: (provider: string
   onMount(() => search?.focus({ preventScroll: true }))
 
   const connect = (provider: string) => {
+    const row = integrations.list().find((item) => item.id === provider)
+    if (provider === "custom-provider" || row?.metadata?.custom) {
+      void dialog.show(() => (
+        <DialogCustomProvider
+          directory={props.directory}
+          initial={
+            provider !== "custom-provider" && row
+              ? {
+                  id: row.id,
+                  name: row.name,
+                  baseURL: typeof row.metadata?.baseURL === "string" ? row.metadata.baseURL : "",
+                  protocol: row.metadata?.protocol === "anthropic" ? "anthropic" : "openai",
+                }
+              : undefined
+          }
+        />
+      ))
+      return
+    }
     props.onPrepare?.()
     props.onSelect(provider)
   }
