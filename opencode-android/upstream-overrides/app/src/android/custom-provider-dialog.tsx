@@ -1,6 +1,6 @@
 import { Button } from "@opencode/ui/button"
 import { Badge } from "@opencode/ui/badge"
-import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
+import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Icon } from "@opencode/ui/icon"
 import { Loader } from "@opencode/ui/loader"
@@ -24,11 +24,11 @@ interface DiscoveredPreviewModel {
 const PRESETS = [
   { label: "OpenRouter", name: "OpenRouter", baseURL: "https://openrouter.ai/api/v1", protocol: "openai" as const },
   { label: "DeepSeek", name: "DeepSeek", baseURL: "https://api.deepseek.com/v1", protocol: "openai" as const },
-  { label: "Gemini (OpenAI URL)", name: "Gemini Custom", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", protocol: "openai" as const },
+  { label: "Gemini URL", name: "Gemini Custom", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", protocol: "openai" as const },
   { label: "Groq", name: "Groq", baseURL: "https://api.groq.com/openai/v1", protocol: "openai" as const },
-  { label: "Together AI", name: "Together AI", baseURL: "https://api.together.xyz/v1", protocol: "openai" as const },
-  { label: "Ollama / LAN", name: "Ollama LAN", baseURL: "http://127.0.0.1:11434/v1", protocol: "openai" as const },
-  { label: "Anthropic Proxy", name: "Anthropic Custom", baseURL: "https://api.anthropic.com/v1", protocol: "anthropic" as const },
+  { label: "Together", name: "Together AI", baseURL: "https://api.together.xyz/v1", protocol: "openai" as const },
+  { label: "Ollama", name: "Ollama LAN", baseURL: "http://127.0.0.1:11434/v1", protocol: "openai" as const },
+  { label: "Anthropic", name: "Anthropic Custom", baseURL: "https://api.anthropic.com/v1", protocol: "anthropic" as const },
 ]
 
 function inferProviderNameFromUrl(rawUrl: string): string {
@@ -136,7 +136,7 @@ export const DialogCustomProvider: Component<{
         const errStr = String(json.error ?? "")
         if (silentIfAuthNeeded && !apiKey().trim() && /401|403|unauthorized|key/i.test(errStr)) {
           setStatusMessage(undefined)
-          setErrorMessage("Введите API Key ниже — модели подхватятся автоматически.")
+          setErrorMessage("Введите API Key — модели подхватятся автоматически.")
         } else {
           setStatusMessage(undefined)
           setErrorMessage(
@@ -158,7 +158,7 @@ export const DialogCustomProvider: Component<{
     }
   }
 
-  // Automatic debounced model discovery whenever Base URL, API Key, or Protocol changes!
+  // Automatic debounced model discovery whenever Base URL, API Key, or Protocol changes
   createEffect(() => {
     const u = baseURL().trim()
     const k = apiKey().trim()
@@ -290,23 +290,26 @@ export const DialogCustomProvider: Component<{
 
   return (
     <Dialog
-      containerClass="!self-start !rounded-[12px] !bg-v2-background-bg-base !mt-[max(8px,calc((100dvh_-_640px)/2))] !w-[min(calc(100vw_-_16px),600px)] !max-h-[calc(100dvh_-_16px)]"
+      fit
+      containerClass="oc-mobile-full-dialog"
       class="[font-family:var(--v2-font-family-sans)]"
     >
       <DialogHeader closeLabel="Close">
         <DialogTitleGroup
           title="Кастомный провайдер (API Key + Авто-модели)"
-          description="Введите Base URL и API Key — список моделей автоматически подхватится с /v1/models."
+          description="Введите Base URL и API Key — модели подхватятся автоматически."
         />
       </DialogHeader>
-      <DialogBody class="min-h-0 flex-1 overflow-y-auto px-4 pb-5 sm:px-5">
-        <form onSubmit={saveProvider} class="flex flex-col gap-3">
-          <div class="flex flex-wrap gap-1.5">
+
+      <DialogBody class="px-4 pb-3">
+        <form id="oc-custom-provider-form" onSubmit={saveProvider} class="flex flex-col gap-2.5">
+          {/* Compact single-row scrollable presets */}
+          <div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <For each={PRESETS}>
               {(preset) => (
                 <button
                   type="button"
-                  class="rounded-md border border-v2-border-border-muted bg-v2-background-bg-surface px-2.5 py-1 text-[11.5px] font-[500] text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base transition-colors"
+                  class="shrink-0 rounded-md border border-v2-border-border-muted bg-v2-background-bg-surface px-2.5 py-1 text-[11.5px] font-[500] text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover hover:text-v2-text-text-base transition-colors"
                   onClick={() => {
                     setName(preset.name)
                     setNameTouched(true)
@@ -322,7 +325,7 @@ export const DialogCustomProvider: Component<{
 
           <label class="flex flex-col gap-1">
             <span class="text-[12px] font-[530] text-v2-text-text-base">1. API Base URL *</span>
-            <div class="flex gap-2">
+            <div class="flex gap-1.5">
               <input
                 type="text"
                 inputMode="url"
@@ -338,7 +341,7 @@ export const DialogCustomProvider: Component<{
                     if (inferred) setName(inferred)
                   }
                 }}
-                placeholder="https://openrouter.ai/api/v1 или https://my-proxy.com/v1"
+                placeholder="https://openrouter.ai/api/v1"
                 class="h-9 min-w-0 flex-1 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
                 required
               />
@@ -349,11 +352,8 @@ export const DialogCustomProvider: Component<{
                 disabled={discovering()}
                 onClick={() => void probeModels(false)}
               >
-                <Show when={discovering()} fallback={<span>Найти модели</span>}>
-                  <span class="flex items-center gap-1.5">
-                    <Loader class="size-3.5" />
-                    <span>Поиск…</span>
-                  </span>
+                <Show when={discovering()} fallback={<span>Найти</span>}>
+                  <Loader class="size-3.5" />
                 </Show>
               </Button>
             </div>
@@ -361,7 +361,7 @@ export const DialogCustomProvider: Component<{
 
           <label class="flex flex-col gap-1">
             <span class="text-[12px] font-[530] text-v2-text-text-base">2. API Key (ключ провайдера)</span>
-            <div class="flex gap-2">
+            <div class="flex gap-1.5">
               <input
                 type={showKey() ? "text" : "password"}
                 autocapitalize="off"
@@ -369,7 +369,7 @@ export const DialogCustomProvider: Component<{
                 spellcheck={false}
                 value={apiKey()}
                 onInput={(e) => setApiKey(e.currentTarget.value)}
-                placeholder="sk-... / AIza... (вставьте API-ключ — модели подхватятся сами)"
+                placeholder="sk-... / AIza... (вставьте ключ)"
                 autocomplete="off"
                 class="h-9 min-w-0 flex-1 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 font-mono text-[12.5px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
               />
@@ -384,9 +384,9 @@ export const DialogCustomProvider: Component<{
             </div>
           </label>
 
-          <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <div class="grid grid-cols-2 gap-2">
             <label class="flex flex-col gap-1">
-              <span class="text-[12px] font-[520] text-v2-text-text-base">Название провайдера</span>
+              <span class="text-[11.5px] font-[520] text-v2-text-text-base">Название</span>
               <input
                 type="text"
                 value={name()}
@@ -394,20 +394,20 @@ export const DialogCustomProvider: Component<{
                   setName(e.currentTarget.value)
                   setNameTouched(true)
                 }}
-                placeholder="Подставится автоматически из URL"
-                class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+                placeholder="Авто из URL"
+                class="h-8.5 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-2.5 text-[12.5px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
               />
             </label>
 
             <label class="flex flex-col gap-1">
-              <span class="text-[12px] font-[520] text-v2-text-text-base">Протокол API</span>
+              <span class="text-[11.5px] font-[520] text-v2-text-text-base">Протокол</span>
               <select
                 value={protocol()}
                 onChange={(e) => setProtocol(e.currentTarget.value === "anthropic" ? "anthropic" : "openai")}
-                class="h-9 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-2.5 text-[13px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+                class="h-8.5 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-2 text-[12.5px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
               >
-                <option value="openai">OpenAI-совместимый (/chat/completions)</option>
-                <option value="anthropic">Anthropic (/v1/messages)</option>
+                <option value="openai">OpenAI (/v1)</option>
+                <option value="anthropic">Anthropic</option>
               </select>
             </label>
           </div>
@@ -415,7 +415,7 @@ export const DialogCustomProvider: Component<{
           <Show when={discovering()}>
             <div class="flex items-center gap-2 rounded-md border border-v2-border-border-muted bg-v2-background-bg-surface px-3 py-2 text-[12px] text-v2-text-text-muted">
               <Loader class="size-3.5 shrink-0" />
-              <span>Запрашиваем список моделей с сервера провайдера (/v1/models)…</span>
+              <span>Автоматический подхват моделей с /v1/models…</span>
             </div>
           </Show>
 
@@ -437,10 +437,10 @@ export const DialogCustomProvider: Component<{
           </Show>
 
           <Show when={discovered().length > 0}>
-            <div class="flex flex-col gap-2 rounded-lg border border-v2-border-border-muted bg-v2-background-bg-surface p-2.5">
+            <div class="flex flex-col gap-1.5 rounded-lg border border-v2-border-border-muted bg-v2-background-bg-surface p-2.5">
               <div class="flex items-center justify-between gap-2">
                 <span class="text-[12px] font-[530] text-v2-text-text-base">
-                  Подхваченные модели ({selectedDiscoveredModels().length} из {discovered().length})
+                  Модели ({selectedDiscoveredModels().length}/{discovered().length})
                 </span>
                 <div class="flex items-center gap-1.5">
                   <button
@@ -458,18 +458,18 @@ export const DialogCustomProvider: Component<{
                 </div>
               </div>
 
-              <Show when={discovered().length > 6}>
+              <Show when={discovered().length > 5}>
                 <input
                   type="search"
                   value={modelFilter()}
                   onInput={(e) => setModelFilter(e.currentTarget.value)}
-                  placeholder="Поиск по найденным моделям..."
+                  placeholder="Поиск по моделям..."
                   class="h-8 rounded-md border border-v2-border-border-base bg-v2-background-bg-base px-2.5 text-[12px] text-v2-text-text-base outline-none"
                 />
               </Show>
 
-              <div class="max-h-40 overflow-y-auto pr-1 text-[12px]">
-                <For each={filteredModels().slice(0, 200)}>
+              <div class="max-h-36 overflow-y-auto pr-1 text-[12px]">
+                <For each={filteredModels().slice(0, 250)}>
                   {(m) => {
                     const checked = () => !uncheckedIds().has(m.id)
                     return (
@@ -491,41 +491,37 @@ export const DialogCustomProvider: Component<{
                   }}
                 </For>
               </div>
-
-              <Show when={endpointUsed()}>
-                {(ep) => <span class="truncate text-[10.5px] text-v2-text-text-faint">Источник: {ep()}</span>}
-              </Show>
             </div>
           </Show>
 
           <label class="flex flex-col gap-1">
             <span class="text-[11.5px] font-[500] text-v2-text-text-muted">
-              Дополнительные ID моделей вручную (необязательно, через запятую)
+              Свои ID моделей через запятую (необязательно)
             </span>
             <input
               type="text"
               value={extraModels()}
               onInput={(e) => setExtraModels(e.currentTarget.value)}
               placeholder="Оставьте пустым для автоподхвата /v1/models"
-              class="h-8.5 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-3 text-[12.5px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
+              class="h-8.5 rounded-md border border-v2-border-border-base bg-v2-background-bg-surface px-2.5 text-[12px] text-v2-text-text-base outline-none focus:border-v2-border-border-strong"
             />
           </label>
-
-          <div class="mt-1 flex items-center justify-end gap-2 border-t border-v2-border-border-muted pt-3">
-            <Button type="button" variant="ghost-muted" onClick={() => dialog.close()}>
-              Отмена
-            </Button>
-            <Button type="submit" variant="contrast" disabled={saving()}>
-              <Show when={saving()} fallback={<span>Сохранить и подключить модели</span>}>
-                <span class="flex items-center gap-1.5">
-                  <Loader class="size-3.5" />
-                  <span>Подключение…</span>
-                </span>
-              </Show>
-            </Button>
-          </div>
         </form>
       </DialogBody>
+
+      <DialogFooter>
+        <Button type="button" variant="ghost-muted" onClick={() => dialog.close()}>
+          Отмена
+        </Button>
+        <Button type="submit" form="oc-custom-provider-form" variant="contrast" disabled={saving()}>
+          <Show when={saving()} fallback={<span>Сохранить и подключить</span>}>
+            <span class="flex items-center gap-1.5">
+              <Loader class="size-3.5" />
+              <span>Подключение…</span>
+            </span>
+          </Show>
+        </Button>
+      </DialogFooter>
     </Dialog>
   )
 }

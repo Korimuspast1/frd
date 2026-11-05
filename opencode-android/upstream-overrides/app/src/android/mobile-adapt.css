@@ -26,12 +26,48 @@ body {
   box-sizing: border-box;
 }
 
+/* Full-height scrollable dialogs (Custom Provider, Project Picker) — never clipped at 368px! */
+[data-component="dialog-v2"] [data-slot="dialog-container"].oc-mobile-full-dialog {
+  width: min(calc(100vw - 16px), 560px) !important;
+  height: auto !important;
+  max-height: calc(100dvh - 20px - var(--oc-safe-top) - var(--oc-safe-bottom)) !important;
+  border-radius: 14px !important;
+  background: var(--v2-background-bg-base) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+[data-component="dialog-v2"] [data-slot="dialog-container"].oc-mobile-full-dialog > [data-slot="dialog-content"] {
+  width: 100% !important;
+  height: auto !important;
+  max-height: calc(100dvh - 20px - var(--oc-safe-top) - var(--oc-safe-bottom)) !important;
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+[data-component="dialog-v2"] [data-slot="dialog-container"].oc-mobile-full-dialog [data-slot="dialog-body"] {
+  width: 100% !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
 @media (max-width: 767px) {
-  /* Ensure dialogs fit phone portrait & landscape cleanly with touch scrolling */
-  [data-component="dialog-content"],
-  [role="dialog"] {
-    max-width: calc(100vw - 12px) !important;
-    max-height: calc(100dvh - 16px - var(--oc-safe-top) - var(--oc-safe-bottom)) !important;
+  /* Ensure ALL upstream OpenCode dialogs fit phone portrait & landscape without clipping */
+  [data-component="dialog-v2"] [data-slot="dialog-container"]:not(.oc-mobile-full-dialog) {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: calc(100dvh - 20px - var(--oc-safe-top) - var(--oc-safe-bottom)) !important;
+  }
+
+  [data-component="dialog-v2"]:not([data-fit]) [data-slot="dialog-container"]:not(.oc-mobile-full-dialog) {
+    height: min(540px, calc(100dvh - 24px - var(--oc-safe-top) - var(--oc-safe-bottom))) !important;
   }
 
   /* Keep Settings navigation scrollable & compact on narrow phone screens */

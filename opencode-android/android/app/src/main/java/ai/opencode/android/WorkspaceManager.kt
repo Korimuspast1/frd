@@ -16,6 +16,7 @@ class WorkspaceManager(private val context: Context) {
 
     val workspacesRoot: File = File(context.filesDir, "workspaces")
     val exportsRoot: File = File(context.cacheDir, "exports")
+    private val registryFile: File = File(context.filesDir, "custom-projects.json")
 
     @Volatile
     private var initialized = false
@@ -27,6 +28,7 @@ class WorkspaceManager(private val context: Context) {
         if (initialized) return
         if (!workspacesRoot.exists()) workspacesRoot.mkdirs()
         if (!exportsRoot.exists()) exportsRoot.mkdirs()
+        loadRegistry()
         val existing = workspacesRoot.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") } ?: emptyList()
         if (existing.isEmpty()) {
             createProjectInternal("opencode-playground", "typescript", null)
@@ -45,17 +47,112 @@ class WorkspaceManager(private val context: Context) {
         return File(obj.optString("directory", File(workspacesRoot, "opencode-playground").absolutePath))
     }
 
+    // ── External / arbitrary directory registry (custom-projects.json) ──────────────
+
+    private val externalProjects = LinkedHashMap<String, MutableMap<String, Any>>()
+
+    @Synchronized
+    private fun loadRegistry() {
+        externalProjects.clear()
+        if (!registryFile.isFile) return
+        try {
+            val arr = JSONArray(registryFile.readText(Charsets.UTF_8))
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val directory = obj.optString("directory", "")
+                if (directory.isBlank()) continue
+                externalProjects[directory] = linkedMapOf(
+                    "name" to obj.optString("name", File(directory).name),
+                    "directory" to directory,
+                    "createdAt" to obj.optLong("createdAt", System.currentTimeMillis()),
+                    "updatedAt" to obj.optLong("updatedAt", System.currentTimeMillis()),
+                )
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    @Synchronized
+    private fun saveRegistry() {
+        try {
+            val arr = JSONArray()
+            for (entry in externalProjects.values) {
+                arr.put(
+                    JSONObject()
+                        .put("name", entry["name"])
+                        .put("directory", entry["directory"])
+                        .put("createdAt", entry["createdAt"])
+                        .put("updatedAt", entry["updatedAt"])
+                )
+            }
+            registryFile.parentFile?.mkdirs()
+            registryFile.writeText(arr.toString(), Charsets.UTF_8)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Registers any device directory as a first-class, persistent project. */
+    fun registerExternalProject(rawDirectory: String, displayName: String? = null): JSONObject {
+        ensureInitialized()
+        val dir = normalizePath(rawDirectory)
+        val file = File(dir)
+        try {
+            if (!file.exists()) file.mkdirs()
+        } catch (_: Throwable) {
+        }
+        val now = System.currentTimeMillis()
+        val name = displayName?.takeIf { it.isNotBlank() } ?: file.name.ifBlank { "workspace" }
+        externalProjects[dir] = linkedMapOf(
+            "name" to name,
+            "directory" to dir,
+            "createdAt" to (externalProjects[dir]?.get("createdAt") ?: now),
+            "updatedAt" to now,
+        )
+        saveRegistry()
+        return JSONObject()
+            .put("id", if (dir.startsWith(workspacesRoot.absolutePath)) file.name else "ext-" + sanitizeSlug(name))
+            .put("name", name)
+            .put("directory", dir)
+            .put("createdAt", externalProjects[dir]?.get("createdAt") ?: now)
+            .put("updatedAt", now)
+    }
+
+    fun forgetExternalProject(rawDirectory: String) {
+        val dir = normalizePath(rawDirectory)
+        if (externalProjects.remove(dir) != null) saveRegistry()
+    }
+
+    /** Normalizes `/sdcard/...`, `~/...`, relative names, and trailing slashes to an absolute path. */
+    fun normalizePath(raw: String): String {
+        var path = raw.trim()
+        if (path.isEmpty()) return workspacesRoot.absolutePath
+        if (path == "~" || path.startsWith("~/")) {
+            path = context.filesDir.absolutePath + path.removePrefix("~")
+        }
+        path = when {
+            path == "/sdcard" -> "/storage/emulated/0"
+            path.startsWith("/sdcard/") -> "/storage/emulated/0/" + path.removePrefix("/sdcard/")
+            path.startsWith("/mnt/sdcard/") -> "/storage/emulated/0/" + path.removePrefix("/mnt/sdcard/")
+            path.startsWith("storage/") -> "/" + path
+            path.startsWith("sdcard/") -> "/storage/emulated/0/" + path.removePrefix("sdcard/")
+            else -> path
+        }
+        val cleaned = path.trimEnd('/').ifEmpty { "/" }
+        return if (cleaned.startsWith("/")) cleaned else File(workspacesRoot, cleaned).absolutePath
+    }
+
     fun resolveDirectoryOrDefault(directory: String): File {
         ensureInitialized()
         if (directory.isNotBlank()) {
-            val normalized = if (directory.startsWith("/sdcard/")) {
-                "/storage/emulated/0/" + directory.removePrefix("/sdcard/")
-            } else {
-                directory
-            }
+            val normalized = normalizePath(directory)
             val f = File(normalized)
             if (f.exists() && f.isDirectory) return f
-            if (normalized.startsWith("/storage/") && f.mkdirs()) return f
+            val created = try {
+                f.mkdirs()
+            } catch (_: Throwable) {
+                false
+            }
+            if (created || f.isDirectory) return f
             val bySlug = File(workspacesRoot, File(normalized).name)
             if (bySlug.exists() && bySlug.isDirectory) return bySlug
         }
@@ -63,34 +160,32 @@ class WorkspaceManager(private val context: Context) {
     }
 
     private fun isAllowedExternalPath(path: String): Boolean {
-        return path.startsWith("/storage/") || path.startsWith("/sdcard/") || path.startsWith("/mnt/user/")
+        return path.startsWith("/storage/") || path.startsWith("/sdcard/") || path.startsWith("/mnt/") ||
+            path.startsWith(context.filesDir.absolutePath) || path.startsWith(context.cacheDir.absolutePath) ||
+            path.startsWith(context.getExternalFilesDir(null)?.absolutePath ?: "/storage/")
     }
 
     fun safeResolveTarget(baseDir: File, relPath: String): File {
         if (relPath.isBlank() || relPath == ".") return baseDir.canonicalFile
-        val normalizedRel = if (relPath.startsWith("/sdcard/")) {
-            "/storage/emulated/0/" + relPath.removePrefix("/sdcard/")
-        } else {
-            relPath
-        }
-        if (isAllowedExternalPath(normalizedRel)) {
+        val normalizedRel = normalizePath(relPath).let { if (relPath.startsWith("/") || relPath.startsWith("~/") || relPath.startsWith("sdcard/")) it else relPath }
+        if (normalizedRel.startsWith("/") && isAllowedExternalPath(normalizedRel)) {
             return File(normalizedRel).absoluteFile
         }
         val candidate = if (normalizedRel.startsWith("/")) {
-            val abs = File(normalizedRel).canonicalFile
-            val rootCanon = workspacesRoot.canonicalFile
-            val baseCanon = baseDir.canonicalFile
-            if (abs.path.startsWith(baseCanon.path) || abs.path.startsWith(rootCanon.path)) {
+            val abs = File(normalizedRel).absoluteFile
+            val rootCanon = workspacesRoot.absolutePath
+            val baseCanon = baseDir.absolutePath
+            if (abs.path.startsWith(baseCanon) || abs.path.startsWith(rootCanon)) {
                 abs
             } else {
-                File(baseDir, normalizedRel.trimStart('/')).canonicalFile
+                File(baseDir, normalizedRel.trimStart('/')).absoluteFile
             }
         } else {
-            File(baseDir, normalizedRel).canonicalFile
+            File(baseDir, normalizedRel).absoluteFile
         }
-        val baseCanon = baseDir.canonicalFile
-        val rootCanon = workspacesRoot.canonicalFile
-        if (!candidate.path.startsWith(baseCanon.path) && !candidate.path.startsWith(rootCanon.path) && !isAllowedExternalPath(candidate.path)) {
+        val baseCanon = baseDir.absolutePath
+        val rootCanon = workspacesRoot.absolutePath
+        if (!candidate.path.startsWith(baseCanon) && !candidate.path.startsWith(rootCanon) && !isAllowedExternalPath(candidate.path)) {
             throw SecurityException("Path escapes workspace: $relPath")
         }
         return candidate
@@ -106,14 +201,17 @@ class WorkspaceManager(private val context: Context) {
     fun listProjectsJson(): JSONArray {
         ensureInitialized()
         val arr = JSONArray()
+        val now = System.currentTimeMillis()
+        val seen = HashSet<String>()
+
         val dirs = workspacesRoot.listFiles()
             ?.filter { it.isDirectory && !it.name.startsWith(".") }
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
 
-        val now = System.currentTimeMillis()
         for (d in dirs) {
             val ts = d.lastModified().takeIf { it > 0L } ?: now
+            seen.add(d.absolutePath)
             val obj = JSONObject()
             obj.put("id", d.name)
             obj.put("name", d.name)
@@ -121,6 +219,21 @@ class WorkspaceManager(private val context: Context) {
             obj.put("createdAt", ts)
             obj.put("updatedAt", ts)
             arr.put(obj)
+        }
+
+        // Any device directory the user opened (internal storage, /sdcard, Termux home, ...)
+        for (entry in externalProjects.values.toList()) {
+            val directory = entry["directory"]?.toString() ?: continue
+            if (seen.contains(directory)) continue
+            seen.add(directory)
+            arr.put(
+                JSONObject()
+                    .put("id", "ext-" + sanitizeSlug(entry["name"]?.toString() ?: File(directory).name))
+                    .put("name", entry["name"]?.toString() ?: File(directory).name)
+                    .put("directory", directory)
+                    .put("createdAt", entry["createdAt"] ?: now)
+                    .put("updatedAt", entry["updatedAt"] ?: now)
+            )
         }
         return arr
     }
@@ -133,8 +246,8 @@ class WorkspaceManager(private val context: Context) {
     private fun createProjectInternal(name: String, template: String, customDirectory: String?): JSONObject {
         val baseId = sanitizeSlug(name)
         val dir = if (!customDirectory.isNullOrBlank()) {
-            val f = File(customDirectory)
-            if (f.isAbsolute && f.canonicalPath.startsWith(workspacesRoot.canonicalPath)) f else File(workspacesRoot, baseId)
+            val requested = File(normalizePath(customDirectory))
+            if (requested.isAbsolute) requested else File(workspacesRoot, baseId)
         } else {
             var finalId = baseId
             var idx = 2
@@ -184,6 +297,15 @@ class WorkspaceManager(private val context: Context) {
         }
 
         val now = System.currentTimeMillis()
+        if (!dir.absolutePath.startsWith(workspacesRoot.absolutePath)) {
+            externalProjects[dir.absolutePath] = linkedMapOf(
+                "name" to name.ifBlank { dir.name },
+                "directory" to dir.absolutePath,
+                "createdAt" to (externalProjects[dir.absolutePath]?.get("createdAt") ?: now),
+                "updatedAt" to now,
+            )
+            saveRegistry()
+        }
         return JSONObject().apply {
             put("id", dir.name)
             put("name", name.ifBlank { dir.name })
@@ -197,8 +319,11 @@ class WorkspaceManager(private val context: Context) {
         ensureInitialized()
         if (directory.isBlank()) return
         val target = resolveDirectoryOrDefault(directory)
-        if (target.canonicalPath.startsWith(workspacesRoot.canonicalPath) && target != workspacesRoot) {
+        if (target.absolutePath.startsWith(workspacesRoot.absolutePath) && target != workspacesRoot) {
             target.deleteRecursively()
+        } else {
+            // Never delete user data outside the app sandbox — just unregister the project.
+            forgetExternalProject(target.absolutePath)
         }
         val remaining = workspacesRoot.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") } ?: emptyList()
         if (remaining.isEmpty()) {
@@ -212,13 +337,13 @@ class WorkspaceManager(private val context: Context) {
         val out = JSONArray()
         if (!target.exists() || !target.isDirectory) return out
 
-        val baseCanon = baseDir.canonicalPath
+        val baseCanon = baseDir.absolutePath
         val children = (target.listFiles() ?: emptyArray())
             .filter { it.name != ".git" }
             .sortedWith(compareBy<File>({ !it.isDirectory }, { it.name.lowercase() }))
 
         for (child in children) {
-            val childCanon = child.canonicalPath
+            val childCanon = child.absolutePath
             val rel = if (childCanon.startsWith("$baseCanon/")) {
                 childCanon.substring(baseCanon.length + 1).replace('\\', '/')
             } else {
@@ -235,7 +360,7 @@ class WorkspaceManager(private val context: Context) {
 
     private fun walkWorkspace(baseDir: File, maxEntries: Int = 2500): List<Pair<String, File>> {
         val results = ArrayList<Pair<String, File>>()
-        val baseCanon = baseDir.canonicalPath
+        val baseCanon = baseDir.absolutePath
 
         fun visit(cur: File) {
             if (results.size >= maxEntries) return
@@ -243,7 +368,7 @@ class WorkspaceManager(private val context: Context) {
             for (item in list) {
                 if (results.size >= maxEntries) return
                 if (ignoredDirs.contains(item.name)) continue
-                val canon = item.canonicalPath
+                val canon = item.absolutePath
                 val rel = if (canon.startsWith("$baseCanon/")) {
                     canon.substring(baseCanon.length + 1).replace('\\', '/')
                 } else {

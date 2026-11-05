@@ -2,7 +2,7 @@
 
 > **Примечание / Disclaimer:** Данный проект является независимым community-портом открытого репозитория [`anomalyco/opencode`](https://github.com/anomalyco/opencode) (`v2.2.5`, MIT) под Android и официально не аффилирован с командой OpenCode / Anomaly.
 
-## Прямое скачивание готового `.apk` (`v2.2.5`, `versionCode 20206`, 13.16 MB)
+## Прямое скачивание готового `.apk` (`v2.2.5`, `versionCode 20208`, ~13.3 MB)
 
 - **Прямая ссылка (GitHub Raw):**  
   [`https://raw.githubusercontent.com/Korimuspast1/frd/refs/heads/arena/915147c5-frd/OpenCode-Android-v2.2.5.apk`](https://raw.githubusercontent.com/Korimuspast1/frd/refs/heads/arena/915147c5-frd/OpenCode-Android-v2.2.5.apk)
@@ -27,7 +27,14 @@
    - Поддерживаются любые **OpenAI-совместимые** (`/v1/chat/completions`) и **Anthropic-совместимые** (`/v1/messages`) серверы: OpenRouter, DeepSeek, Groq, Together, Fireworks, Ollama, LM Studio, vLLM, LiteLLM, корпоративные прокси и локальные серверы в LAN.
    - При вводе Base URL и API-ключа (или нажатии **Fetch `/v1/models`** / **Sync Models**) движок автоматически опрашивает `/v1/models` (а также `/models` и `/api/tags` для Ollama) в обход браузерного CORS через нативный Android HTTP-прокси, подхватывает все доступные модели и делает их доступными в селекторе моделей OpenCode.
 
-4. **Полноценная локальная работа на Android как на ПК:**
+4. **Любая папка на телефоне — полноценная среда (новое в `20208`):**
+   - Открыть можно **любой каталог**: `/storage/emulated/0/...`, `/sdcard/...`, `/mnt/...`, внутренние workspace'ы приложения, домашнюю папку Termux. Внешние папки запоминаются в `custom-projects.json` и остаются в списке проектов после перезапуска.
+   - Для `noexec` FUSE-разделов (`/storage/emulated/0`) работают обходные пути: скрипты вида `./run.sh` автоматически исполняются через `sh`, а если `ProcessBuilder.directory()` не может сделать каталог рабочим, команда выполняется с явным `cd`.
+   - Вместе с APK поставляется **портативный CLI-toolchain** (`files/usr/bin`, шимы `#!/system/bin/sh` + `dalvikvm`): `bash`, `curl`, `wget`, `git` (`init/status/add/commit/log/diff/rev-parse/branch`), `jq` (собственный JSON-парсер и фильтры: `.a.b`, `.[]`, `select()`, `map()`, `keys`, `length`, `-r`, `-c`), `zip`, `unzip`, `tree`, `node` (V8 внутри WebView + `fs`/`path`/`os`/`process`/`child_process`/`fetch`/`Buffer`), `npm` (`run`, `start`, `test`, `init`), `python3` (реальный интерпретатор подмножества Python 3: функции, циклы, f-strings, списки/словари, `json`/`os`/`math`/`time`/`random`), а также системные `sed`/`awk`/`grep`/`find`/`tar`.
+   - Агентские инструменты: `bash` с параметрами `workdir` и `timeout`, `webfetch`, `todowrite`/`todoread`, а `edit` терпим к отступам (fuzzy-matching).
+   - Терминал Ghostty сохраняет текущий каталог между командами (`cd` работает как в настоящей оболочке, включая `cd -` и `cd ~`).
+
+5. **Полноценная локальная работа на Android как на ПК:**
    - **Фоновый сервис** (`OpenCodeDaemonService` + `PARTIAL_WAKE_LOCK`) удерживает сессии и стриминг ИИ активными при сворачивании приложения.
    - **Локальное создание и открытие проектов** (`DialogAndroidProjectPicker`: шаблоны TypeScript/Node, Python, Web, пустой проект, удаление и ZIP-экспорт).
    - **Полные файловые и агентские операции** (`build` и `plan` агенты): чтение (`read`), создание/перезапись (`write`), точечное редактирование (`edit`), удаление (`delete_file`), поиск файлов (`glob`), поиск по коду (`grep`), просмотр диффов (`session.diff`) и локальный терминал (`bash` / `/system/bin/sh` + автоматический подхват `/data/data/com.termux/files/usr/bin` при наличии Termux).
@@ -42,7 +49,11 @@
   - `app/src/android/custom-provider-dialog.tsx` — Диалог добавления кастомных провайдеров с пресетами и автоподхватом `/v1/models`.
   - `app/src/android/project-picker-dialog.tsx` — Менеджер локальных проектов и шаблонов на устройстве.
   - `app/src/android/mobile-adapt.css` — Адаптация safe-area и диалогов под мобильные экраны.
-- `opencode-android/android/app/src/main/java/ai/opencode/android/` — Нативная Android-часть на Kotlin (`MainActivity.kt`, `OpenCodeRuntime.kt`, `OpenCodeDaemonService.kt`, `LocalHttpDaemon.kt`, `NativeBridge.kt`, `WorkspaceManager.kt`, `ShellExecutor.kt`, `OpenCodeFileProvider.kt`).
+- `opencode-android/android/app/src/main/java/ai/opencode/android/` — Нативная Android-часть на Kotlin (`MainActivity.kt`, `OpenCodeRuntime.kt`, `OpenCodeDaemonService.kt`, `LocalHttpDaemon.kt`, `NativeBridge.kt`, `WorkspaceManager.kt`, `ShellExecutor.kt`, `OpenCodeFileProvider.kt`, `CliTools.kt`, `PyRuntime.kt`, `JsBridgeRunner.kt`).
+  - `ShellExecutor.kt` — универсальный запуск команд в любой папке: установка шимов `files/usr/bin`, PATH/HOME/TMPDIR, обход `noexec`, fallback на `cd` при отказе `ProcessBuilder.directory()`.
+  - `CliTools.kt` — точка входа портативного toolchain (`curl`, `wget`, `jq`, `zip`, `unzip`, `tree`, `git`, `node`, `npm`, `python3`, `which`).
+  - `PyRuntime.kt` — интерпретатор подмножества Python 3 для `python3`.
+  - `JsBridgeRunner.kt` — выполнение JS в V8 (WebView) с Node-совместимым API для `node`.
 - `opencode-android/server/dev-daemon.mjs` — Node.js сервер для локального запуска и Live Preview (`0.0.0.0:4096`).
 - `opencode-android/scripts/build-upstream-web.mjs` & `build-apk.mjs` — Скрипты сборки оригинального фронтенда `@opencode/app` и компиляции/подписи `OpenCode-Android-v2.2.5.apk`.
 

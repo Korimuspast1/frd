@@ -146,6 +146,43 @@ async function ensureSampleWorkspace() {
 
 const defaultWorkspace = await ensureSampleWorkspace()
 
+// ── Persistent registry of arbitrary device directories opened as projects ──
+const PROJECT_REGISTRY = path.join(STATE_ROOT, "custom-projects.json")
+
+async function readProjectRegistry() {
+  try {
+    const raw = await fsp.readFile(PROJECT_REGISTRY, "utf8")
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((p) => p && typeof p.directory === "string") : []
+  } catch {
+    return []
+  }
+}
+
+async function writeProjectRegistry(entries) {
+  await fsp.mkdir(STATE_ROOT, { recursive: true })
+  await fsp.writeFile(PROJECT_REGISTRY, JSON.stringify(entries, null, 2) + "\n")
+}
+
+async function registerProjectDir(directory, name) {
+  const resolved = path.resolve(
+    String(directory).replace(/^\/sdcard\//, "/storage/emulated/0/").replace(/^~\/?/, `${os.homedir()}/`),
+  )
+  await fsp.mkdir(resolved, { recursive: true }).catch(() => undefined)
+  const entries = await readProjectRegistry()
+  const existing = entries.find((entry) => entry.directory === resolved)
+  const now = Date.now()
+  const record = {
+    directory: resolved,
+    name: name || existing?.name || path.basename(resolved) || "workspace",
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  }
+  const next = [record, ...entries.filter((entry) => entry.directory !== resolved)]
+  await writeProjectRegistry(next)
+  return record
+}
+
 const IGNORED_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "__pycache__"])
 
 async function walkDirectory(dir, baseDir, out = [], limit = 2000) {
@@ -206,7 +243,27 @@ const hostAdapter = {
         updatedAt,
       })
     }
+    const registry = await readProjectRegistry()
+    for (const entry of registry) {
+      if (out.some((p) => p.directory === entry.directory)) continue
+      out.push({
+        id: `ext-${entry.name}`,
+        name: entry.name,
+        directory: entry.directory,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+      })
+    }
     return out.sort((a, b) => b.updatedAt - a.updatedAt)
+  },
+
+  async registerProject(directory, name) {
+    const record = await registerProjectDir(directory, name)
+    return { id: `ext-${record.name}`, name: record.name, directory: record.directory, createdAt: record.createdAt, updatedAt: record.updatedAt }
+  },
+
+  async environmentInfo() {
+    return { platform: "node", home: os.homedir(), cwd: process.cwd(), tools: "bash sh curl wget git jq zip unzip tree node npm python3" }
   },
 
   async createProject(input) {
@@ -362,7 +419,7 @@ const hostAdapter = {
     return hits
   },
 
-  async execShell(directory, command, timeoutMs = 30000) {
+  async execShell(directory, command, timeoutMs = 120000) {
     const start = Date.now()
     return new Promise((resolve) => {
       exec(
@@ -370,7 +427,9 @@ const hostAdapter = {
         {
           cwd: directory && fs.existsSync(directory) ? directory : defaultWorkspace,
           timeout: timeoutMs,
-          maxBuffer: 4 * 1024 * 1024,
+          maxBuffer: 8 * 1024 * 1024,
+          shell: process.env.OPENCODE_SHELL || "/bin/bash",
+          env: { ...process.env, OPENCODE: "1", OPENCODE_PLATFORM: "web" },
         },
         (error, stdout, stderr) => {
           const code = error && typeof error.code === "number" ? error.code : error ? 1 : 0

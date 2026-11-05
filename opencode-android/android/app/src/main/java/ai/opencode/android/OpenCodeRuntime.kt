@@ -39,6 +39,10 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
     val workspaceManager: WorkspaceManager = WorkspaceManager(appContext)
     val shellExecutor: ShellExecutor = ShellExecutor(appContext)
     val httpDaemon: LocalHttpDaemon = LocalHttpDaemon(this)
+    val jsBridge: JsBridgeRunner by lazy { JsBridgeRunner(this) { activeWebView } }
+
+    @Volatile
+    var activeWebView: android.webkit.WebView? = null
 
     private val stateDir: File by lazy {
         val d = File(appContext.filesDir, "engine-state")
@@ -61,7 +65,17 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
             } catch (_: Throwable) {
             }
             try {
+                shellExecutor.ensurePortableToolchain()
+            } catch (_: Throwable) {
+            }
+            try {
                 httpDaemon.startBlockingOnWorker()
+                val p = httpDaemon.port
+                shellExecutor.daemonPort = p
+                try {
+                    File(appContext.filesDir, "daemon-port").writeText(p.toString())
+                } catch (_: Throwable) {
+                }
             } catch (_: Throwable) {
             }
         }
@@ -69,6 +83,61 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
 
     val daemonPort: Int
         get() = httpDaemon.port
+
+    /** State of the JavaScript evaluation bridge used by the portable `node` CLI shim. */
+    class JsJob(val id: String, val code: String, val cwd: String, val filename: String) {
+        @Volatile var started = false
+
+        @Volatile var completed = false
+
+        @Volatile var ok = false
+
+        @Volatile var stdout = ""
+
+        @Volatile var stderr = ""
+
+        @Volatile var error: String? = null
+
+        @Volatile var exitCode = 0
+    }
+
+    private val jsJobs = java.util.concurrent.ConcurrentHashMap<String, JsJob>()
+
+    fun submitJsJob(job: JsJob): JsJob {
+        jsJobs[job.id] = job
+        pendingJsQueue.offer(job)
+        return job
+    }
+
+    private val pendingJsQueue = java.util.concurrent.LinkedBlockingQueue<JsJob>()
+
+    /** Called by MainActivity when a WebView becomes available to evaluate queued scripts. */
+    fun drainPendingJsJobs(): List<JsJob> {
+        val drained = ArrayList<JsJob>()
+        while (true) {
+            val job = pendingJsQueue.poll() ?: break
+            drained.add(job)
+        }
+        return drained
+    }
+
+    fun finishJsJob(id: String, resultJson: String) {
+        val job = jsJobs.remove(id) ?: return
+        try {
+            val obj = JSONObject(resultJson)
+            job.stdout = obj.optString("stdout", "")
+            job.stderr = obj.optString("stderr", "")
+            job.ok = obj.optBoolean("ok", false)
+            job.exitCode = obj.optInt("exitCode", if (job.ok) 0 else 1)
+            job.error = obj.optString("error", "").takeIf { it.isNotBlank() }
+        } catch (t: Throwable) {
+            job.ok = false
+            job.error = t.message ?: "JavaScript evaluation failed"
+            job.exitCode = 1
+        } finally {
+            job.completed = true
+        }
+    }
 
     fun sanitizeStateKey(raw: String): String {
         val cleaned = raw.replace(Regex("[^a-zA-Z0-9._-]+"), "_")
@@ -183,10 +252,38 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
 
             "execShell" -> {
                 val directory = payload.optString("directory", "")
+                val workdir = payload.optString("workdir", "").takeIf { it.isNotBlank() }
                 val command = payload.optString("command", "")
                 val timeoutMs = payload.optLong("timeoutMs", 30000L)
-                val dirFile = workspaceManager.resolveDirectoryOrDefault(directory)
+                val dirFile = shellExecutor.resolveWorkDir(workdir ?: directory)
                 shellExecutor.execute(dirFile, command, timeoutMs)
+            }
+
+            "registerProject" -> {
+                val directory = payload.optString("directory", "")
+                val name = payload.optString("name", "").takeIf { it.isNotBlank() }
+                JSONObject().put("project", workspaceManager.registerExternalProject(directory, name))
+            }
+
+            "evalJs" -> {
+                jsBridge.evaluateBlocking(
+                    payload.optString("code", ""),
+                    payload.optString("cwd", workspaceManager.defaultProjectDir().absolutePath),
+                    payload.optString("filename", "<eval>"),
+                    payload.optLong("timeoutMs", 120000L),
+                )
+            }
+
+            "environmentInfo" -> {
+                shellExecutor.environmentInfo().put("daemonPort", daemonPort)
+            }
+
+            "mkdir" -> {
+                val directory = payload.optString("directory", "")
+                val relPath = payload.optString("relPath", "")
+                val target = workspaceManager.safeResolveTarget(workspaceManager.resolveDirectoryOrDefault(directory), relPath)
+                val ok = target.exists() || target.mkdirs()
+                JSONObject().put("ok", ok).put("path", target.absolutePath)
             }
 
             "httpRequest" -> {

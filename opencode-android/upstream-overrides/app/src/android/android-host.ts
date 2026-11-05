@@ -182,9 +182,23 @@ export function createAndroidHostAdapter(): OpenCodeHostAdapter {
     async execShell(directory: string, command: string, timeoutMs?: number) {
       return callNativeRpc<{ stdout: string; stderr: string; exitCode: number; durationMs: number }>("execShell", {
         directory,
+        workdir: directory,
         command,
-        timeoutMs: timeoutMs ?? 30000,
+        timeoutMs: timeoutMs ?? 120000,
       })
+    },
+
+    async registerProject(directory: string, name?: string): Promise<ProjectRecord> {
+      const res = await callNativeRpc<{ project: ProjectRecord }>("registerProject", { directory, name })
+      return res.project
+    },
+
+    async environmentInfo(): Promise<Record<string, unknown>> {
+      try {
+        return await callNativeRpc<Record<string, unknown>>("environmentInfo")
+      } catch {
+        return { platform: "android" }
+      }
     },
 
     async httpFetch(url: string, init?: RequestInit): Promise<Response> {

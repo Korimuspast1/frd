@@ -167,6 +167,16 @@ class LocalHttpDaemon(private val runtime: OpenCodeRuntime) {
                     handleStreamingHttpProxy(bodyStr, out)
                 }
 
+                method == "POST" && pathOnly == "/__native/eval-js" -> {
+                    val result = runtime.jsBridge.evaluateBlocking(
+                        bodyStr.let { runCatching { JSONObject(it).optString("code", "") }.getOrDefault("") },
+                        bodyStr.let { runCatching { JSONObject(it).optString("cwd", "") }.getOrDefault("") },
+                        bodyStr.let { runCatching { JSONObject(it).optString("filename", "") }.getOrDefault("") },
+                        bodyStr.let { runCatching { JSONObject(it).optLong("timeoutMs", 120000L) }.getOrDefault(120000L) },
+                    )
+                    writeJsonResponse(out, 200, "OK", result.toString())
+                }
+
                 else -> {
                     writeJsonResponse(out, 404, "Not Found", "{\"__error\":\"Route not found: $pathOnly\"}")
                 }

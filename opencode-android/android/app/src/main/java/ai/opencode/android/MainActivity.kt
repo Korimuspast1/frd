@@ -108,6 +108,8 @@ class MainActivity : Activity() {
                 setSupportMultipleWindows(false)
             }
 
+            runtime.activeWebView = this
+            runtime.jsBridge.install()
             val bridge = NativeBridge(this@MainActivity, runtime) { webView }
             addJavascriptInterface(bridge, "OpenCodeNative")
             addJavascriptInterface(bridge, "OpenCodeAndroid")
@@ -390,6 +392,10 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        try {
+            runtime.activeWebView = null
+        } catch (_: Throwable) {
+        }
         if (serviceBound) {
             try {
                 unbindService(connection)

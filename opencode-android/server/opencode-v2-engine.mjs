@@ -140,6 +140,79 @@ function normalizeBaseUrl(raw, protocol) {
   u = u.replace(/\/chat\/completions$/i, "").replace(/\/messages$/i, "").replace(/\/models$/i, "");
   return u;
 }
+function resolveWorkdir(baseDir, raw) {
+  const value = String(raw ?? "").trim();
+  if (!value)
+    return baseDir;
+  let p = value;
+  if (p === "~")
+    p = baseDir;
+  else if (p.startsWith("~/"))
+    p = `${baseDir}/${p.slice(2)}`;
+  p = p.replace(/^\/sdcard\//, "/storage/emulated/0/").replace(/^sdcard\//, "/storage/emulated/0/");
+  if (!p.startsWith("/"))
+    p = `${baseDir.replace(/\/$/, "")}/${p}`;
+  const segments = [];
+  for (const seg of p.split("/")) {
+    if (!seg || seg === ".")
+      continue;
+    if (seg === "..")
+      segments.pop();
+    else
+      segments.push(seg);
+  }
+  return `/${segments.join("/")}`;
+}
+function htmlToText(html) {
+  return html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<noscript[\s\S]*?<\/noscript>/gi, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/<br\s*\/?>/gi, `
+`).replace(/<\/(p|div|li|h[1-6]|tr|section|article)>/gi, `
+`).replace(/<li[^>]*>/gi, "- ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, `
+
+`).trim();
+}
+function normalizeForMatch(input) {
+  return input.replace(/\r\n/g, `
+`).replace(/[ \t]+$/gm, "");
+}
+function findFuzzyMatch(haystack, needle) {
+  const exact = haystack.indexOf(needle);
+  if (exact >= 0)
+    return { start: exact, end: exact + needle.length, text: needle };
+  const normalizedHay = normalizeForMatch(haystack);
+  const normalizedNeedle = normalizeForMatch(needle).trim();
+  if (!normalizedNeedle)
+    return null;
+  const direct = normalizedHay.indexOf(normalizedNeedle);
+  if (direct >= 0) {
+    return { start: direct, end: direct + normalizedNeedle.length, text: haystack.slice(direct, direct + normalizedNeedle.length) };
+  }
+  const hayLines = haystack.split(`
+`);
+  const needleLines = normalizedNeedle.split(`
+`).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (needleLines.length === 0)
+    return null;
+  for (let i = 0;i <= hayLines.length - needleLines.length; i++) {
+    let ok = true;
+    for (let j = 0;j < needleLines.length; j++) {
+      const hay = hayLines[i + j].trim();
+      const need = needleLines[j];
+      if (hay !== need) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      const before = hayLines.slice(0, i);
+      const matched = hayLines.slice(i, i + needleLines.length);
+      const start = before.reduce((acc, line) => acc + line.length + 1, 0);
+      return { start, end: start + matched.join(`
+`).length, text: matched.join(`
+`) };
+    }
+  }
+  return null;
+}
 function computeUnifiedDiff(relPath, before, after) {
   const oldLines = before !== undefined ? before.split(`
 `) : [];
@@ -891,6 +964,25 @@ class OpenCodeV2Engine {
         }
       }
     ];
+    if (readOnly) {
+      tools.push({
+        name: "webfetch",
+        description: "Fetch a URL over the network (GET by default) and return the response body as text/markdown.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "Absolute http(s) URL" },
+            method: { type: "string", description: "HTTP method (default GET)" },
+            maxLength: { type: "integer", description: "Max characters to return (default 60000)" }
+          },
+          required: ["url"]
+        }
+      }, {
+        name: "todoread",
+        description: "Read the current session task list.",
+        parameters: { type: "object", properties: {} }
+      });
+    }
     if (!readOnly) {
       tools.push({
         name: "write",
@@ -910,8 +1002,9 @@ class OpenCodeV2Engine {
           type: "object",
           properties: {
             filePath: { type: "string", description: "Relative path inside workspace" },
-            oldString: { type: "string", description: "Exact text to find" },
-            newString: { type: "string", description: "Replacement text" }
+            oldString: { type: "string", description: "Exact text to find (whitespace-tolerant)" },
+            newString: { type: "string", description: "Replacement text" },
+            replaceAll: { type: "boolean", description: "Replace every occurrence" }
           },
           required: ["filePath", "oldString", "newString"]
         }
@@ -927,15 +1020,70 @@ class OpenCodeV2Engine {
         }
       }, {
         name: "bash",
-        description: "Execute a shell command inside the local project directory and return stdout/stderr.",
+        description: "Execute a shell command on the device and return stdout/stderr. Runs in the workspace by default; pass `workdir` to target any directory (/storage/emulated/0/..., /sdcard/..., internal workspaces). A portable toolchain (bash, curl, wget, git, jq, zip, unzip, tree, node, npm, python3) is on PATH.",
         parameters: {
           type: "object",
           properties: {
             command: { type: "string", description: "Shell command to execute" },
+            workdir: {
+              type: "string",
+              description: "Directory to run the command in (absolute path or relative to the workspace)"
+            },
+            timeout: {
+              type: "integer",
+              description: "Timeout in milliseconds (default 120000, max 600000)"
+            },
             description: { type: "string", description: "Short summary of what this command does" }
           },
           required: ["command"]
         }
+      }, {
+        name: "todowrite",
+        description: "Create or update the session task list. Use it to plan multi-step work and mark progress (pending / in_progress / completed / cancelled).",
+        parameters: {
+          type: "object",
+          properties: {
+            todos: {
+              type: "array",
+              description: "The complete todo list (replaces the previous one)",
+              items: {
+                type: "object",
+                properties: {
+                  content: { type: "string", description: "Task description" },
+                  status: {
+                    type: "string",
+                    description: "pending | in_progress | completed | cancelled"
+                  }
+                },
+                required: ["content", "status"]
+              }
+            }
+          },
+          required: ["todos"]
+        }
+      }, {
+        name: "webfetch",
+        description: "Fetch a URL over the network (GET by default) and return the response body as text/markdown. Useful for reading documentation or APIs.",
+        parameters: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "Absolute http(s) URL" },
+            method: { type: "string", description: "HTTP method (default GET)" },
+            headers: {
+              type: "object",
+              description: "Extra request headers",
+              additionalProperties: { type: "string" }
+            },
+            body: { type: "string", description: "Optional request body" },
+            bodyText: { type: "string", description: "Optional request body (alias)" },
+            maxLength: { type: "integer", description: "Max characters to return (default 60000)" }
+          },
+          required: ["url"]
+        }
+      }, {
+        name: "todoread",
+        description: "Read the current session task list.",
+        parameters: { type: "object", properties: {} }
       });
     }
     return tools;
@@ -1022,10 +1170,17 @@ ${numbered}`,
       if (!prev.exists || prev.text === undefined) {
         throw new Error(`File not found: ${rel}`);
       }
-      if (!prev.text.includes(oldStr)) {
-        throw new Error(`oldString not found in ${rel}. Read the file first to get exact lines.`);
+      const match = findFuzzyMatch(prev.text, oldStr);
+      if (!match) {
+        const hints = oldStr.split(`
+`).map((l) => l.trim()).filter(Boolean).slice(0, 3);
+        throw new Error(`oldString not found in ${rel}. Read the file first to get exact lines (looked for: ${hints.join(" / ") || "(empty)"}).`);
       }
-      const updated = prev.text.replace(oldStr, newStr);
+      const occurrences = prev.text.split(oldStr).length - 1;
+      if (occurrences > 1 && args.replaceAll !== true) {
+        throw new Error(`oldString matches ${occurrences} locations in ${rel}. Add more surrounding context to make it unique, or pass replaceAll: true.`);
+      }
+      const updated = prev.text.slice(0, match.start) + newStr + prev.text.slice(match.end);
       await this.host.fsWrite(dir, rel, updated);
       const diff = computeUnifiedDiff(rel, prev.text, updated);
       session.diffs = [...session.diffs.filter((d) => d.file !== rel), diff];
@@ -1060,14 +1215,68 @@ ${diff.patch}`,
     }
     if (name === "bash") {
       const command = String(args.command ?? "");
-      const res = await this.host.execShell(dir, command, 45000);
+      const targetDir = args.workdir ? resolveWorkdir(dir, String(args.workdir)) : dir;
+      const timeout = Math.min(600000, Math.max(1000, Number(args.timeout ?? args.timeoutMs ?? 120000)));
+      const res = await this.host.execShell(targetDir, command, timeout);
       const combined = [res.stdout, res.stderr ? `[stderr]
 ${res.stderr}` : ""].filter(Boolean).join(`
 `).trim();
+      session.time.updated = Date.now();
+      await this.persist();
       return {
-        output: `Exit code: ${res.exitCode} (${res.durationMs}ms)
+        output: `Exit code: ${res.exitCode} (${res.durationMs}ms) in ${targetDir}
 ${combined || "(no output)"}`,
-        metadata: { exitCode: res.exitCode, durationMs: res.durationMs, command }
+        metadata: { exitCode: res.exitCode, durationMs: res.durationMs, command, workdir: targetDir }
+      };
+    }
+    if (name === "todowrite") {
+      const incoming = Array.isArray(args.todos) ? args.todos : [];
+      const todos = incoming.map((t, idx) => ({
+        id: String(t?.id ?? `todo_${idx + 1}`),
+        content: String(t?.content ?? t?.text ?? ""),
+        status: ["pending", "in_progress", "completed", "cancelled"].includes(String(t?.status)) ? String(t.status) : "pending"
+      }));
+      session.todos = todos;
+      await this.persist();
+      return {
+        output: todos.length === 0 ? "Todo list cleared." : `Todo list updated:
+` + todos.map((t) => `- [${t.status === "completed" ? "x" : t.status === "in_progress" ? "~" : " "}] ${t.content}`).join(`
+`),
+        metadata: { count: todos.length }
+      };
+    }
+    if (name === "todoread") {
+      const todos = session.todos ?? [];
+      return {
+        output: todos.length === 0 ? "(no todos)" : todos.map((t) => `- [${t.status}] ${t.content}`).join(`
+`),
+        metadata: { count: todos.length }
+      };
+    }
+    if (name === "webfetch") {
+      const url = String(args.url ?? "");
+      if (!/^https?:\/\//i.test(url))
+        throw new Error("webfetch requires an absolute http(s) URL");
+      const maxLength = Math.min(400000, Math.max(1000, Number(args.maxLength ?? 60000)));
+      const headers = {
+        "User-Agent": "OpenCode/2.2.5 (android)",
+        Accept: "text/html,application/xhtml+xml,application/json,text/plain;q=0.9,*/*;q=0.8",
+        ...args.headers && typeof args.headers === "object" ? args.headers : {}
+      };
+      const res = await this.host.httpFetch(url, {
+        method: String(args.method ?? "GET").toUpperCase(),
+        headers,
+        body: args.body !== undefined || args.bodyText !== undefined ? String(args.body ?? args.bodyText ?? "") : undefined
+      });
+      const contentType = res.headers.get("content-type") ?? "text/plain";
+      const raw = await res.text();
+      const text = contentType.includes("html") ? htmlToText(raw) : raw;
+      const clipped = text.length > maxLength ? `${text.slice(0, maxLength)}
+… [truncated ${text.length - maxLength} chars]` : text;
+      return {
+        output: `HTTP ${res.status} ${contentType}
+${clipped}`,
+        metadata: { url, status: res.status, contentType, bytes: raw.length }
       };
     }
     throw new Error(`Unknown tool: ${name}`);
@@ -1596,7 +1805,9 @@ ${combined || "(no output)"}`,
       const systemPrompt = [
         `You are OpenCode (v2.2.5), an autonomous software engineering agent running locally in workspace: ${session.location.directory}.`,
         agentMode === "plan" ? "Active agent: PLAN (read-only). Inspect files, search code, and produce a clear implementation plan without modifying files." : "Active agent: BUILD (full access). Use read, list, glob, grep, write, edit, delete_file, and bash tools to inspect, build, edit, and verify code directly in the local workspace.",
-        "Always read existing files before editing them, keep changes clean and accurate, and summarize what you accomplished concisely."
+        "Always read existing files before editing them, keep changes clean and accurate, and summarize what you accomplished concisely.",
+        "The workspace can be ANY device directory (/storage/emulated/0/..., /sdcard/..., internal app storage). The bash tool accepts a `workdir` argument to run commands anywhere on the device, and PATH already contains a portable toolchain: bash, sh, curl, wget, git, jq, zip, unzip, tree, node, npm, python3, plus sed/awk/grep/find/tar from Android. Use those tools directly instead of claiming a command is unavailable.",
+        "Use todowrite for multi-step work and webfetch to read web pages or APIs."
       ].join(`
 `);
       const tools = this.getToolDefinitions(agentMode);
@@ -2111,6 +2322,22 @@ ${combined || "(no output)"}`,
         };
         this.emitEvent({ type: "project.updated", data: updated });
         return json(updated);
+      }
+      if (method === "POST" && path === "/api/android/register-project") {
+        const body = await readJson();
+        const directory = String(body.directory ?? "").trim();
+        if (!directory)
+          return json({ message: "directory is required" }, 400);
+        if (this.host.registerProject) {
+          const registered = await this.host.registerProject(directory, body.name ? String(body.name) : undefined);
+          return json({ project: registered }, 201);
+        }
+        const created = await this.host.createProject({
+          name: body.name ? String(body.name) : directory.split("/").filter(Boolean).pop() ?? "workspace",
+          template: "empty",
+          directory
+        });
+        return json({ project: created }, 201);
       }
       if (method === "POST" && path === "/api/android/projects") {
         const body = await readJson();
@@ -2995,7 +3222,8 @@ ${combined || "(no output)"}`,
           const body = await readJson();
           const id = makeSortableId("sh_");
           const started = Date.now();
-          const res = await this.host.execShell(body.cwd ?? loc.directory, String(body.command ?? ""), body.timeout ?? 30000);
+          const shellDir = body.workdir ? resolveWorkdir(body.cwd ?? loc.directory, String(body.workdir)) : body.cwd ?? loc.directory;
+          const res = await this.host.execShell(shellDir, String(body.command ?? ""), body.timeout ?? 30000);
           const output = [res.stdout, res.stderr].filter(Boolean).join(`
 `);
           const info = {
@@ -3124,6 +3352,35 @@ $ `;
       return json({ message: err?.message ? String(err.message) : "Internal server error" }, 500);
     }
   }
+  subscribePtyOutput(ptyID, listener) {
+    const pty = this.ptys.get(ptyID);
+    if (!pty)
+      return () => {
+        return;
+      };
+    const entry = pty;
+    entry.outputListeners = entry.outputListeners ?? new Set;
+    entry.outputListeners.add(listener);
+    return () => {
+      try {
+        entry.outputListeners?.delete(listener);
+      } catch {}
+    };
+  }
+  async writePtyInput(ptyID, rawInput) {
+    const pty = this.ptys.get(ptyID);
+    if (!pty)
+      return;
+    const entry = pty;
+    const emit = (bytes) => {
+      for (const listener of Array.from(entry.outputListeners ?? [])) {
+        try {
+          listener(bytes);
+        } catch {}
+      }
+    };
+    await this.sendPtyInput(ptyID, rawInput, emit);
+  }
   getPtyReplayBytes(ptyID) {
     const pty = this.ptys.get(ptyID);
     return new TextEncoder().encode(pty?.text ?? "$ ");
@@ -3148,15 +3405,25 @@ $ `;
           continue;
         }
         if (cmd) {
-          if (cmd.startsWith("cd ")) {
-            const target = cmd.slice(3).trim();
-            const res = await this.host.execShell(pty.info.cwd, `cd ${target} && pwd`, 5000);
-            if (res.exitCode === 0 && res.stdout.trim()) {
-              pty.info.cwd = res.stdout.trim().split(`
-`).pop();
-            } else if (res.stderr) {
-              onOutput(encoder.encode(res.stderr.replace(/\n/g, `\r
-`) + `\r
+          const previousCwd = ptyState.previousCwd;
+          const cdMatch = /^(?:cd|pushd)\s+(.+)$/.exec(cmd);
+          const isBareCd = cmd === "cd" || cmd === "cd ~" || cmd === "cd -";
+          if (cdMatch || isBareCd) {
+            const target = isBareCd ? cmd === "cd -" ? previousCwd ?? pty.info.cwd : "~" : cdMatch[1].trim().replace(/^["']|["']$/g, "");
+            const resolvedTarget = resolveWorkdir(pty.info.cwd, target);
+            const res = await this.host.execShell(pty.info.cwd, `cd ${JSON.stringify(resolvedTarget)} && pwd`, 8000);
+            const newCwd = res.exitCode === 0 ? res.stdout.trim().split(`
+`).pop()?.trim() : undefined;
+            if (newCwd) {
+              ptyState.previousCwd = pty.info.cwd;
+              pty.info.cwd = newCwd;
+              pty.info.foregroundProcess = "sh";
+            } else {
+              const message = (res.stderr || `cd: no such file or directory: ${target}`).replace(/\r?\n/g, `\r
+`);
+              pty.text = (pty.text + message + `\r
+`).slice(-16000);
+              onOutput(encoder.encode(message + `\r
 `));
             }
           } else {
