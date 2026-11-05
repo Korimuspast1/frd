@@ -454,6 +454,42 @@ internal object Py {
         private fun lookup(target: String, scope: MutableMap<String, Any?>): Any? =
             if (target.contains('[')) eval(target, scope) else resolveName(target, scope)
 
+        /** Executes a shell command through the portable toolchain; returns (stdout, exitCode). */
+        fun runShellCommand(command: String, workdir: String?): Pair<String, Int> = try {
+            val dir = workdir ?: (System.getProperty("opencode.cwd") ?: System.getProperty("user.dir") ?: "/")
+            val shell = ShellRunner()
+            shell.run(command, File(dir))
+        } catch (_: Throwable) {
+            "" to 1
+        }
+
+        /** Minimal `requests`-compatible HTTP call returning a response mapping. */
+        fun httpRequest(method: String, positional: List<Any?>, kwargs: Map<String, Any?>): Any? {
+            val url = str(positional.firstOrNull() ?: kwargs["url"])
+            val headers = LinkedHashMap<String, String>()
+            (kwargs["headers"] as? Map<*, *>)?.forEach { (key, value) -> headers[str(key)] = str(value) }
+            val params = kwargs["params"] as? Map<*, *>
+            val jsonBody = kwargs["json"]
+            val dataBody = kwargs["data"]
+            val body: String? = when {
+                jsonBody != null -> encodeJson(jsonBody, true)
+                dataBody is Map<*, *> -> dataBody.entries.joinToString("&") { "${str(it.key)}=${str(it.value)}" }
+                dataBody != null -> str(dataBody)
+                else -> null
+            }
+            if (jsonBody != null && !headers.keys.any { it.equals("content-type", true) }) {
+                headers["Content-Type"] = "application/json"
+            }
+            val finalUrl = if (params is Map<*, *> && params.isNotEmpty()) {
+                val query = params.entries.joinToString("&") { "${str(it.key)}=${str(it.value)}" }
+                if (url.contains("?")) "$url&$query" else "$url?$query"
+            } else {
+                url
+            }
+            val timeout = (kwargs["timeout"] as? Double)?.let { (it * 1000).toInt() } ?: 30000
+            return HttpHelper.request(finalUrl, method, headers, body, timeout)
+        }
+
         fun moduleFor(name: String): Any = when (name) {
             "sys" -> SysModule()
             "os" -> OsModule()
@@ -461,6 +497,11 @@ internal object Py {
             "math" -> MathModule()
             "time" -> TimeModule()
             "random" -> RandomModule()
+            "requests" -> RequestsModule()
+            "urllib" -> UrllibModule()
+            "urllib.request" -> UrllibModule()
+            "http" -> UrllibModule()
+            "http.client" -> UrllibModule()
             else -> PyModule(name)
         }
 
@@ -670,7 +711,7 @@ internal object Py {
 
                     ch.isLetter() || ch == '_' -> {
                         var j = i
-                        while (j < input.length && (input[j].isLetterOrDigit() || input[j] == '_' || input[j] == '.')) j++
+                        while (j < input.length && (input[j].isLetterOrDigit() || input[j] == '_')) j++
                         tokens.add(PyName(input.substring(i, j)))
                         i = j
                     }
@@ -747,17 +788,30 @@ internal object Py {
                 var left = additive()
                 while (true) {
                     val op = opText(peek()) ?: break
-                    if (op != "==" && op != "!=" && op != "<" && op != ">" && op != "<=" && op != ">=" && op != "in") break
+                    val negatedIs = op == "is" && opText(tokens.getOrNull(pos + 1)) == "not"
+                    if (op != "==" && op != "!=" && op != "<" && op != ">" && op != "<=" && op != ">=" &&
+                        op != "in" && op != "is" && op != "not"
+                    ) break
+                    if (op == "not" && opText(tokens.getOrNull(pos + 1)) != "in") break
                     next()
+                    if (op == "not") {
+                        next() // consume "in"
+                        val right = additive()
+                        left = !(asList(right).contains(left) || (right is String && str(left) in right))
+                        continue
+                    }
+                    if (negatedIs) next() // consume "not" after "is"
                     val right = additive()
-                    left = when (op) {
-                        "==" -> equals(left, right)
-                        "!=" -> !equals(left, right)
-                        "<" -> num(left) < num(right)
-                        ">" -> num(left) > num(right)
-                        "<=" -> num(left) <= num(right)
-                        ">=" -> num(left) >= num(right)
-                        else -> asList(right).contains(left) || (right is String && str(left) in right)
+                    left = when {
+                        op == "is" -> if (negatedIs) left !== right && !equals(left, right) else left === right || equals(left, right)
+                        op == "in" -> asList(right).contains(left) || (right is String && str(left) in right)
+                        op == "==" -> equals(left, right)
+                        op == "!=" -> !equals(left, right)
+                        op == "<" -> num(left) < num(right)
+                        op == ">" -> num(left) > num(right)
+                        op == "<=" -> num(left) <= num(right)
+                        op == ">=" -> num(left) >= num(right)
+                        else -> false
                     }
                 }
                 return left
@@ -983,6 +1037,21 @@ internal object Py {
                     else -> PyAstRef("os.$member")
                 }
 
+                is HttpHelper.PyResponse -> when (member) {
+                    "status_code" -> target.statusCode.toDouble()
+                    "text" -> target.text
+                    "content" -> target.content
+                    "ok" -> target.ok
+                    "headers" -> target.headers
+                    "reason" -> target.reason
+                    "encoding" -> "utf-8"
+                    else -> PyAstRef(member)
+                }
+
+                is PyAstRef -> PyAstRef("${target.name}.$member")
+
+                is RequestsModule -> PyAstRef("requests.$member")
+                is UrllibModule -> PyAstRef("urllib.$member")
                 is MathModule -> when (member) {
                     "pi" -> Math.PI
                     "e" -> Math.E
@@ -999,8 +1068,26 @@ internal object Py {
                     if (method != null) return method.call(listOf<Any?>(target) + a, k, interp)
                     return target.fields[member]
                 }
+                if (target is PyAstRef) {
+                    // Module-qualified call: os.path.join(...), requests.get(...), sys.exit(...)
+                    return builtin("${target.name}.$member", a, k)
+                }
+                if (target is HttpHelper.PyResponse) {
+                    return when (member) {
+                        "json" -> target.json()
+                        "raise_for_status" -> {
+                            target.raiseForStatus(); null
+                        }
+
+                        "close" -> null
+                        "iter_lines" -> target.text.lines()
+                        "iter_content" -> listOf(target.text)
+                        else -> PyAstRef("$member()")
+                    }
+                }
                 if (target is SysModule || target is OsModule || target is MathModule ||
-                    target is JsonModule || target is TimeModule || target is RandomModule
+                    target is JsonModule || target is TimeModule || target is RandomModule ||
+                    target is RequestsModule || target is UrllibModule
                 ) {
                     val name = when (target) {
                         is SysModule -> "sys.$member"
@@ -1008,6 +1095,8 @@ internal object Py {
                         is MathModule -> "math.$member"
                         is JsonModule -> "json.$member"
                         is TimeModule -> "time.$member"
+                        is RequestsModule -> "requests.$member"
+                        is UrllibModule -> "urllib.$member"
                         else -> "random.$member"
                     }
                     return builtin(name, a, k)
@@ -1190,9 +1279,20 @@ internal object Py {
             }
 
             private fun builtin(name: String, a: List<Any?>, k: Map<String, Any?>): Any? {
-                val resolvedName = if (name.startsWith("sys.") || name.startsWith("os.") || name.startsWith("json.") ||
-                    name.startsWith("math.") || name.startsWith("time.") || name.startsWith("random.")
-                ) name else name
+                val resolvedName = name
+                when (resolvedName) {
+                    "os.path.join", "path.join" -> {
+                        return a.filter { str(it).isNotEmpty() }.joinToString("/") { str(it) }
+                            .replace(Regex("/{2,}"), "/")
+                    }
+
+                    "os.path.basename", "path.basename" -> return File(str(a.firstOrNull())).name
+                    "os.path.dirname", "path.dirname" -> return File(str(a.firstOrNull())).parent ?: "."
+                    "os.path.abspath", "path.abspath" -> return File(str(a.firstOrNull())).absolutePath
+                    "os.path.exists", "path.exists" -> return File(str(a.firstOrNull())).exists()
+                    "os.path.isdir" -> return File(str(a.firstOrNull())).isDirectory
+                    "os.path.isfile" -> return File(str(a.firstOrNull())).isFile
+                }
                 return when (resolvedName) {
                     "print" -> {
                         val sep = k["sep"]?.let { str(it) } ?: " "
@@ -1345,7 +1445,8 @@ internal object Py {
                         null
                     }
 
-                    "os.path.join" -> a.joinToString("/") { str(it) }
+                    "os.path.join" -> a.filter { str(it).isNotEmpty() }.joinToString("/") { str(it) }
+                        .replace(Regex("/{2,}"), "/")
                     "os.path.exists" -> File(str(a.firstOrNull())).exists()
                     "os.path.isdir" -> File(str(a.firstOrNull())).isDirectory
                     "os.path.isfile" -> File(str(a.firstOrNull())).isFile
@@ -1395,6 +1496,65 @@ internal object Py {
                         if (list.isEmpty()) null else list[(Math.random() * list.size).toInt()]
                     }
 
+                    "os.system" -> {
+                        val command = str(a.firstOrNull())
+                        ShellRunner().runInherit(command, File(System.getProperty("user.dir") ?: "/"))
+                    }
+
+                    "os.popen" -> {
+                        val command = str(a.firstOrNull())
+                        runShellCommand(command, null).first
+                    }
+
+                    "os.execv", "os.execvp" -> {
+                        val command = a.joinToString(" ") { str(it) }
+                        runShellCommand(command, null)
+                        throw PyExit(0)
+                    }
+
+                    "subprocess.run", "subprocess.call", "subprocess.check_output", "subprocess.Popen" -> {
+                        val command = if (a.firstOrNull() is List<*>) {
+                            asList(a.firstOrNull()).joinToString(" ") { str(it) }
+                        } else {
+                            str(a.firstOrNull())
+                        }
+                        val captured = runShellCommand(command, null)
+                        if (name.contains("Popen")) {
+                            mapOf("returncode" to captured.second, "pid" to 1.0)
+                        } else if (name.contains("check_output")) {
+                            captured.first
+                        } else {
+                            mapOf("returncode" to captured.second, "stdout" to captured.first)
+                        }
+                    }
+
+                    "requests.get", "requests.post", "requests.put", "requests.patch", "requests.delete", "requests.head" -> {
+                        val method = name.substringAfter("requests.").uppercase()
+                        httpRequest(method, a, k)
+                    }
+
+                    "requests.request" -> {
+                        val method = str(a.firstOrNull()).uppercase()
+                        httpRequest(method, a.drop(1), k)
+                    }
+
+                    "requests.Session" -> mapOf("headers" to LinkedHashMap<String, Any?>())
+
+                    "urllib.urlopen", "urllib.request.urlopen", "http.client.HTTPConnection", "http.client.HTTPSConnection" -> {
+                        if (name.startsWith("http.client")) {
+                            val host = str(a.firstOrNull())
+                            mapOf("__conn__" to host, "headers" to LinkedHashMap<String, Any?>())
+                        } else {
+                            val url = if (a.firstOrNull() is Map<*, *>) {
+                                str((a.firstOrNull() as Map<*, *>)["full_url"] ?: a.getOrNull(1))
+                            } else {
+                                str(a.firstOrNull())
+                            }
+                            val data = k["data"] ?: if (a.size > 1) a[1] else null
+                            httpRequest(if (data != null) "POST" else "GET", listOf(url, data), k)
+                        }
+                    }
+
                     else -> PyAstRef(name)
                 }
             }
@@ -1414,6 +1574,10 @@ internal object Py {
     class TimeModule
 
     class RandomModule
+
+    class RequestsModule
+
+    class UrllibModule
 
     // ── shared value helpers ───────────────────────────────────────────────────
 
@@ -1750,4 +1914,105 @@ internal fun pyFindAssignment(s: String): Int {
         }
     }
     return -1
+}
+
+/** Runs shell commands for the python3 `os.system`/`subprocess` shims. */
+internal class ShellRunner {
+    /** Runs a command inheriting the parent stdio (used by python `os.system`). */
+    fun runInherit(command: String, dir: File): Double = try {
+        val shell = if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+        val pb = ProcessBuilder(shell, "-c", command)
+        if (dir.isDirectory) pb.directory(dir)
+        pb.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+        pb.redirectError(ProcessBuilder.Redirect.INHERIT)
+        val proc = pb.start()
+        proc.waitFor(600, java.util.concurrent.TimeUnit.SECONDS)
+        (proc.exitValue() shr 8).toDouble()
+    } catch (_: Throwable) {
+        1.0
+    }
+
+    fun run(command: String, dir: File): Pair<String, Int> = try {
+        val shell = if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+        val pb = ProcessBuilder(shell, "-c", command)
+        if (dir.isDirectory) pb.directory(dir)
+        pb.redirectErrorStream(true)
+        val proc = pb.start()
+        val output = proc.inputStream.bufferedReader().readText()
+        val finished = proc.waitFor(120, java.util.concurrent.TimeUnit.SECONDS)
+        if (!finished) proc.destroyForcibly()
+        output to (if (finished) proc.exitValue() else 124)
+    } catch (t: Throwable) {
+        (t.message ?: "shell error") to 1
+    }
+}
+
+/**
+ * `requests`-like HTTP client used by the python3 shim. Uses `HttpURLConnection` directly so it works
+ * on plain JVMs and inside the APK (no Android-only APIs).
+ */
+internal object HttpHelper {
+
+    /** Response value exposed to Python: supports `.text`, `.json()`, `.status_code`, `.ok`, `.content`. */
+    class PyResponse(
+        val statusCode: Int,
+        val body: String,
+        val headers: Map<String, String>,
+    ) {
+        val text: String get() = body
+        val ok: Boolean get() = statusCode in 200..299
+        val reason: String get() = ""
+        val content: String get() = body
+        fun json(): Any? = parseJson(body)
+        fun raiseForStatus() {
+            if (!ok) throw Py.PyError("HTTPError: $statusCode")
+        }
+    }
+
+    fun request(url: String, method: String, headers: Map<String, String>, body: String?, timeoutMs: Int): PyResponse {
+        val target = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+        val conn = try {
+            java.net.URL(target).openConnection() as java.net.HttpURLConnection
+        } catch (t: Throwable) {
+            throw Py.PyError("ConnectionError: ${t.message ?: "invalid URL"}")
+        }
+        try {
+            conn.requestMethod = method.uppercase()
+            conn.connectTimeout = timeoutMs.coerceIn(1000, 600000)
+            conn.readTimeout = timeoutMs.coerceIn(1000, 600000)
+            conn.instanceFollowRedirects = true
+            conn.useCaches = false
+            conn.setRequestProperty("User-Agent", "OpenCode-Android/2.2.5 python3")
+            conn.setRequestProperty("Accept", "*/*")
+            for ((key, value) in headers) conn.setRequestProperty(key, value)
+            if (body != null && method.uppercase() != "GET" && method.uppercase() != "HEAD") {
+                val bytes = body.toByteArray(Charsets.UTF_8)
+                conn.doOutput = true
+                conn.setFixedLengthStreamingMode(bytes.size)
+                conn.outputStream.use { it.write(bytes) }
+            }
+            val code = conn.responseCode
+            val stream = try {
+                if (code in 200..399) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            } catch (_: Throwable) {
+                null
+            }
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+            val responseHeaders = LinkedHashMap<String, String>()
+            try {
+                conn.headerFields.forEach { (key, values) ->
+                    if (key != null && values.isNotEmpty()) responseHeaders[key.lowercase()] = values.joinToString(", ")
+                }
+            } catch (_: Throwable) {
+            }
+            return PyResponse(code, text, responseHeaders)
+        } catch (t: Throwable) {
+            throw Py.PyError("ConnectionError: ${t.message ?: t.javaClass.simpleName}")
+        } finally {
+            try {
+                conn.disconnect()
+            } catch (_: Throwable) {
+            }
+        }
+    }
 }

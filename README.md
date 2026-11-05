@@ -27,7 +27,7 @@
    - Поддерживаются любые **OpenAI-совместимые** (`/v1/chat/completions`) и **Anthropic-совместимые** (`/v1/messages`) серверы: OpenRouter, DeepSeek, Groq, Together, Fireworks, Ollama, LM Studio, vLLM, LiteLLM, корпоративные прокси и локальные серверы в LAN.
    - При вводе Base URL и API-ключа (или нажатии **Fetch `/v1/models`** / **Sync Models**) движок автоматически опрашивает `/v1/models` (а также `/models` и `/api/tags` для Ollama) в обход браузерного CORS через нативный Android HTTP-прокси, подхватывает все доступные модели и делает их доступными в селекторе моделей OpenCode.
 
-4. **Любая папка на телефоне — полноценная среда (новое в `20208`):**
+4. **Любая папка на телефоне — полноценная среда (новое в `20208`/`20209`):**
    - Открыть можно **любой каталог**: `/storage/emulated/0/...`, `/sdcard/...`, `/mnt/...`, внутренние workspace'ы приложения, домашнюю папку Termux. Внешние папки запоминаются в `custom-projects.json` и остаются в списке проектов после перезапуска.
    - Для `noexec` FUSE-разделов (`/storage/emulated/0`) работают обходные пути: скрипты вида `./run.sh` автоматически исполняются через `sh`, а если `ProcessBuilder.directory()` не может сделать каталог рабочим, команда выполняется с явным `cd`.
    - Вместе с APK поставляется **портативный CLI-toolchain** (`files/usr/bin`, шимы `#!/system/bin/sh` + `dalvikvm`): `bash`, `curl`, `wget`, `git` (`init/status/add/commit/log/diff/rev-parse/branch`), `jq` (собственный JSON-парсер и фильтры: `.a.b`, `.[]`, `select()`, `map()`, `keys`, `length`, `-r`, `-c`), `zip`, `unzip`, `tree`, `node` (V8 внутри WebView + `fs`/`path`/`os`/`process`/`child_process`/`fetch`/`Buffer`), `npm` (`run`, `start`, `test`, `init`), `python3` (реальный интерпретатор подмножества Python 3: функции, циклы, f-strings, списки/словари, `json`/`os`/`math`/`time`/`random`), а также системные `sed`/`awk`/`grep`/`find`/`tar`.
@@ -50,12 +50,37 @@
   - `app/src/android/project-picker-dialog.tsx` — Менеджер локальных проектов и шаблонов на устройстве.
   - `app/src/android/mobile-adapt.css` — Адаптация safe-area и диалогов под мобильные экраны.
 - `opencode-android/android/app/src/main/java/ai/opencode/android/` — Нативная Android-часть на Kotlin (`MainActivity.kt`, `OpenCodeRuntime.kt`, `OpenCodeDaemonService.kt`, `LocalHttpDaemon.kt`, `NativeBridge.kt`, `WorkspaceManager.kt`, `ShellExecutor.kt`, `OpenCodeFileProvider.kt`, `CliTools.kt`, `PyRuntime.kt`, `JsBridgeRunner.kt`).
-  - `ShellExecutor.kt` — универсальный запуск команд в любой папке: установка шимов `files/usr/bin`, PATH/HOME/TMPDIR, обход `noexec`, fallback на `cd` при отказе `ProcessBuilder.directory()`.
+  - `ShellExecutor.kt` — универсальный запуск команд в любой папке: PATH/HOME/TMPDIR, обход `noexec`, fallback на `cd` при отказе `ProcessBuilder.directory()`, **запуск инструментов без executable-бита** (`dalvikvm -cp base.apk ai.opencode.android.CliTools <tool>`), автоперезапись `python3/node/curl/...` в командах и shell-функции для скриптов.
+  - `ProcessRegistry.kt` — реестр фоновых процессов: боты и dev-серверы (`python3 bot.py`, `node server.js`, `while True`, `getUpdates`, `app.run`, `serve(`, `--watch`) запускаются отсоединёнными, пишут лог в `files/run/logs/` и автоматически перезапускаются после убийства приложения.
   - `CliTools.kt` — точка входа портативного toolchain (`curl`, `wget`, `jq`, `zip`, `unzip`, `tree`, `git`, `node`, `npm`, `python3`, `which`).
-  - `PyRuntime.kt` — интерпретатор подмножества Python 3 для `python3`.
+  - `PyRuntime.kt` — интерпретатор подмножества Python 3 для `python3`: `requests`/`urllib`/`http`, `os.system`/`os.popen`/`os.execv`, `subprocess.*`, f-strings, `is None`, срезы, `json`, файлы.
   - `JsBridgeRunner.kt` — выполнение JS в V8 (WebView) с Node-совместимым API для `node`.
 - `opencode-android/server/dev-daemon.mjs` — Node.js сервер для локального запуска и Live Preview (`0.0.0.0:4096`).
 - `opencode-android/scripts/build-upstream-web.mjs` & `build-apk.mjs` — Скрипты сборки оригинального фронтенда `@opencode/app` и компиляции/подписи `OpenCode-Android-v2.2.5.apk`.
+
+## Почему раньше было `python3: Permission denied` (и почему больше нет)
+
+Начиная с Android 10 SELinux запрещает `execve()` для файлов внутри `/data/data/<app>/files`.
+Поэтому «шим» вида `files/usr/bin/python3` с `#!/system/bin/sh` **никогда** не запустится, даже с `chmod 777`.
+В сборке `20209` исполняемого бита не требуется вообще:
+
+| Что нужно | Чем заменено |
+|---|---|
+| `python3`, `node`, `npm`, `curl`, `wget`, `jq`, `git`, `zip`, `unzip`, `tree` | `/system/bin/dalvikvm -cp <base.apk> ai.opencode.android.CliTools <tool>` — dalvik лишь *читает* APK, ничего не исполняет из app-данных |
+| `bash` | `/system/bin/sh` (плюс реальный Termux `bash`, если он установлен) |
+| `./script.sh`, `python3 x.py` внутри скриптов | автоперезапись команды + одноимённые shell-функции, подгружаемые в каждую `sh -c` сессию |
+| `python3 bot.py`, `node server.js` | фоновый запуск с логом `files/run/logs/bg_*.log` и автоперезапуском через `ProcessRegistry` |
+
+Termux **не обязателен**; если он установлен, его бинарники используются автоматически (и быстрее).
+Каталог `/storage/emulated/0/...` смонтирован с `noexec` — это больше не мешает, потому что ни один
+инструмент оттуда не запускается напрямую.
+
+### Боты и долгоживущие команды
+
+Если попросить агента «запусти бота», команда не будет убита по таймауту: агент получает
+`pid` и путь к живому логу, процесс продолжает работать при свёрнутом приложении (wake-lock +
+foreground-сервис) и перезапускается после перезапуска приложения. Токены в выводе инструментов
+маскируются (`<REDACTED_BOT_TOKEN>`), поэтому случайно попавший в чат токен не утечёт в ответ ассистента.
 
 ## Сборка из исходников
 

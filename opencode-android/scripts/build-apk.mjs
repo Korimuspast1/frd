@@ -77,7 +77,7 @@ run(AAPT2, [
   "--java", path.join(BUILD_DIR, "gen"),
   "--min-sdk-version", "26",
   "--target-sdk-version", "34",
-  "--version-code", "20208",
+  "--version-code", "20209",
   "--version-name", "2.2.5",
   "-o", unalignedApk,
   ...flatFiles,

@@ -11,7 +11,7 @@ import fs from "node:fs"
 import fsp from "node:fs/promises"
 import path from "node:path"
 import os from "node:os"
-import { execFile, exec } from "node:child_process"
+import { execFile, exec, spawn } from "node:child_process"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
 import { OpenCodeV2Engine } from "./opencode-v2-engine.mjs"
@@ -421,6 +421,45 @@ const hostAdapter = {
 
   async execShell(directory, command, timeoutMs = 120000) {
     const start = Date.now()
+    /**
+     * Mirrors the Android runtime: bots / pollers / dev servers are started detached with a log file
+     * instead of blocking the tool call until the timeout kills them.
+     */
+    const longRunning =
+      /(polling|poll|while\s+True|while\s*\(|getUpdates|setWebhook|listen\s*\(|app\.run|serve\s*\(|uvicorn|gunicorn|nodemon|--watch)/i.test(
+        command,
+      ) || /\.(py|js|mjs)\s*$/.test(command.trim())
+    if (longRunning && process.env.OPENCODE_BACKGROUND !== "0") {
+      const cwd = directory && fs.existsSync(directory) ? directory : defaultWorkspace
+      const logDir = path.join(os.tmpdir(), "opencode-bg")
+      fs.mkdirSync(logDir, { recursive: true })
+      const id = "bg_" + Date.now().toString(36)
+      const logPath = path.join(logDir, id + ".log")
+      const fd = fs.openSync(logPath, "a")
+      const child = spawn(process.env.OPENCODE_SHELL || "/bin/bash", ["-c", command], {
+        cwd,
+        detached: true,
+        stdio: ["ignore", fd, fd],
+        env: { ...process.env, OPENCODE: "1", OPENCODE_PLATFORM: "web" },
+      })
+      child.unref()
+      await new Promise((r) => setTimeout(r, 1200))
+      let tail = ""
+      try {
+        tail = fs.readFileSync(logPath, "utf8").slice(-4000)
+      } catch {}
+      const alive = child.exitCode === null && !child.killed
+      return {
+        stdout: (alive ? `Запущено в фоне (pid ${child.pid}).\n` : "") + tail,
+        stderr: "",
+        exitCode: alive ? 0 : 1,
+        durationMs: Date.now() - start,
+        background: true,
+        pid: child.pid,
+        log: logPath,
+        alive,
+      }
+    }
     return new Promise((resolve) => {
       exec(
         command,

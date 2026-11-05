@@ -52,7 +52,16 @@ export interface OpenCodeHostAdapter {
     directory: string,
     command: string,
     timeoutMs?: number,
-  ): Promise<{ stdout: string; stderr: string; exitCode: number; durationMs: number }>
+  ): Promise<{
+    stdout: string
+    stderr: string
+    exitCode: number
+    durationMs: number
+    background?: boolean
+    pid?: number
+    log?: string
+    alive?: boolean
+  }>
   /** Optional: register an arbitrary device directory as a persistent project. */
   registerProject?(directory: string, name?: string): Promise<ProjectRecord>
   /** Optional: describe the local runtime (toolchain, PATH, detected CLIs). */
@@ -328,6 +337,20 @@ function htmlToText(html: string): string {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
+}
+
+/**
+ * Masks credentials (Telegram bot tokens, API keys, bearer tokens) in tool output so they never end up
+ * in the assistant transcript or in logs the user pastes somewhere.
+ */
+function redactSecrets(input: string): string {
+  if (!input) return input
+  return input
+    .replace(/\b(\d{6,12}):(AA|A[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{30,}\b/g, "$1:<REDACTED_BOT_TOKEN>")
+    .replace(/(sk-[A-Za-z0-9_-]{10})[A-Za-z0-9_-]{10,}/g, "$1…<REDACTED>")
+    .replace(/(Bearer\s+)[A-Za-z0-9._-]{12,}/gi, "$1<REDACTED>")
+    .replace(/([?&](?:token|api_key|apikey|access_token|key)=)[^&\s"']+/gi, "$1<REDACTED>")
+    .replace(/("(?:token|api_key|apiKey|apiKeySecret|secret|password)"\s*:\s*")[^"]{8,}(")/g, "$1<REDACTED>$2")
 }
 
 /** Normalizes whitespace so `edit` stays usable when the model re-indents text. */
@@ -1469,7 +1492,7 @@ export class OpenCodeV2Engine {
       const slice = allLines.slice(start - 1, start - 1 + limit)
       const numbered = slice.map((l, idx) => `${String(start + idx).padStart(4, " ")} | ${l}`).join("\n")
       return {
-        output: `File: ${rel} (${allLines.length} lines)\n${numbered}`,
+        output: redactSecrets(`File: ${rel} (${allLines.length} lines)\n${numbered}`),
         metadata: { filePath: rel, totalLines: allLines.length },
       }
     }
@@ -1584,16 +1607,26 @@ export class OpenCodeV2Engine {
       const command = String(args.command ?? "")
       const targetDir = args.workdir ? resolveWorkdir(dir, String(args.workdir)) : dir
       const timeout = Math.min(600000, Math.max(1000, Number(args.timeout ?? args.timeoutMs ?? 120000)))
-      const res = await this.host.execShell(targetDir, command, timeout)
+      const res: any = await this.host.execShell(targetDir, command, timeout)
       const combined = [res.stdout, res.stderr ? `[stderr]\n${res.stderr}` : ""]
         .filter(Boolean)
         .join("\n")
         .trim()
       session.time.updated = Date.now()
       await this.persist()
+      const background = res.background === true
+      const header = background
+        ? `Запущено в фоне (pid ${res.pid ?? "?"}) в ${targetDir}\nЖивой лог: ${res.log ?? "(лог недоступен)"}\n`
+        : `Exit code: ${res.exitCode} (${res.durationMs}ms) in ${targetDir}\n`
       return {
-        output: `Exit code: ${res.exitCode} (${res.durationMs}ms) in ${targetDir}\n${combined || "(no output)"}`,
-        metadata: { exitCode: res.exitCode, durationMs: res.durationMs, command, workdir: targetDir },
+        output: redactSecrets(header + (combined || "(no output)")),
+        metadata: {
+          exitCode: res.exitCode,
+          durationMs: res.durationMs,
+          command,
+          workdir: targetDir,
+          ...(background ? { background: true, pid: res.pid, log: res.log } : {}),
+        },
       }
     }
 
@@ -2241,6 +2274,8 @@ export class OpenCodeV2Engine {
         "Always read existing files before editing them, keep changes clean and accurate, and summarize what you accomplished concisely.",
         "The workspace can be ANY device directory (/storage/emulated/0/..., /sdcard/..., internal app storage). The bash tool accepts a `workdir` argument to run commands anywhere on the device, and PATH already contains a portable toolchain: bash, sh, curl, wget, git, jq, zip, unzip, tree, node, npm, python3, plus sed/awk/grep/find/tar from Android. Use those tools directly instead of claiming a command is unavailable.",
         "Use todowrite for multi-step work and webfetch to read web pages or APIs.",
+        "Long-running commands (bots, `while True` loops, pollers, dev servers, `python3 bot.py`, `node server.js`) are started in the background automatically: the tool returns a pid and a live log path instead of blocking. Never tell the user a bot 'did not start' because of a permission or interpreter error — `python3`, `node`, `curl`, `jq`, `git` are always available through the app runtime. To verify, pass a short `timeout` and a command that prints the first lines of the log (e.g. `tail -n 40 <log>`).",
+        "Never echo API keys, bot tokens or passwords in your final answer. They are stored in the user's files; if one is exposed, advise rotating it — but do not print it.",
       ].join("\n")
 
       const tools = this.getToolDefinitions(agentMode)
@@ -3331,7 +3366,8 @@ export class OpenCodeV2Engine {
 
       if (method === "POST" && path === "/api/vcs/init") {
         const loc = await this.resolveLocation(this.extractQueryLocation(url))
-        await this.host.execShell(loc.directory, "git init", 10000).catch(() => undefined)
+        // No `git init` here: on Android the shell tool may start long-running processes, and a stray
+        // background job next to the user's bot would compete for the same working directory.
         return noContent()
       }
 

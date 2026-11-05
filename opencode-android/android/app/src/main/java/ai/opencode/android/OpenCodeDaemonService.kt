@@ -33,6 +33,10 @@ class OpenCodeDaemonService : Service() {
         super.onCreate()
         // Zero network or blocking disk IO on Main Thread!
         runtime = OpenCodeRuntime.getInstance(applicationContext)
+        try {
+            runtime.acquireWakeLock()
+        } catch (_: Throwable) {
+        }
         runtime.statusListener = { statusText, busy ->
             updateForegroundNotification(statusText, busy)
         }
@@ -124,6 +128,10 @@ class OpenCodeDaemonService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            runtime.releaseWakeLock()
+        } catch (_: Throwable) {
+        }
         try {
             if (wakeLock?.isHeld == true) wakeLock?.release()
         } catch (_: Throwable) {

@@ -37,6 +37,7 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
 
     val ioExecutor: ExecutorService = Executors.newCachedThreadPool()
     val workspaceManager: WorkspaceManager = WorkspaceManager(appContext)
+    val processRegistry: ProcessRegistry = ProcessRegistry(appContext)
     val shellExecutor: ShellExecutor = ShellExecutor(appContext)
     val httpDaemon: LocalHttpDaemon = LocalHttpDaemon(this)
     val jsBridge: JsBridgeRunner by lazy { JsBridgeRunner(this) { activeWebView } }
@@ -66,6 +67,11 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
             }
             try {
                 shellExecutor.ensurePortableToolchain()
+                shellExecutor.processRegistry = processRegistry
+            } catch (_: Throwable) {
+            }
+            try {
+                restoreBackgroundProcesses()
             } catch (_: Throwable) {
             }
             try {
@@ -83,6 +89,70 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
 
     val daemonPort: Int
         get() = httpDaemon.port
+
+    @Volatile
+    private var restoredOnce = false
+
+    /** Restarts bots/dev servers that were running when the app process was killed. */
+    fun restoreBackgroundProcesses() {
+        synchronized(this) {
+            if (restoredOnce) return
+            restoredOnce = true
+        }
+        val stale = try {
+            processRegistry.staleRestartable()
+        } catch (_: Throwable) {
+            return
+        }
+        for (entry in stale) {
+            val id = entry.optString("id")
+            processRegistry.markCrashed(id)
+            val command = entry.optString("command")
+            val directory = entry.optString("directory")
+            if (command.isBlank()) continue
+            try {
+                val dir = if (directory.isBlank()) workspaceManager.defaultProjectDir() else File(directory)
+                ioExecutor.execute {
+                    try {
+                        shellExecutor.startBackground(dir, command)
+                    } catch (_: Throwable) {
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        try {
+            statusListener?.invoke("Фоновая среда запущена • Локальные инструменты готовы", false)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
+    /** Keeps CPU (and therefore bots/PTYs) alive while the app is backgrounded. */
+    @Synchronized
+    fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        try {
+            val pm = appContext.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "OpenCodeAndroid::runtime").apply {
+                setReferenceCounted(false)
+            }
+            wakeLock?.acquire(60 * 60 * 1000L)
+        } catch (_: Throwable) {
+        }
+    }
+
+    @Synchronized
+    fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Throwable) {
+        }
+        wakeLock = null
+    }
+
+    fun processStatusJson(): JSONObject = JSONObject().put("processes", processRegistry.list())
 
     /** State of the JavaScript evaluation bridge used by the portable `node` CLI shim. */
     class JsJob(val id: String, val code: String, val cwd: String, val filename: String) {
@@ -256,7 +326,10 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
                 val command = payload.optString("command", "")
                 val timeoutMs = payload.optLong("timeoutMs", 30000L)
                 val dirFile = shellExecutor.resolveWorkDir(workdir ?: directory)
-                shellExecutor.execute(dirFile, command, timeoutMs)
+                val result = shellExecutor.execute(dirFile, command, timeoutMs)
+                // Errors belong to the agent, not to the activity: return them instead of crashing or
+                // answering with a perfectly empty success.
+                result
             }
 
             "registerProject" -> {
@@ -272,6 +345,14 @@ class OpenCodeRuntime private constructor(private val appContext: Context) {
                     payload.optString("filename", "<eval>"),
                     payload.optLong("timeoutMs", 120000L),
                 )
+            }
+
+            "listProcesses" -> processStatusJson()
+
+            "stopProcess" -> {
+                val id = payload.optString("id", "")
+                processRegistry.markStopped(id)
+                JSONObject().put("ok", true)
             }
 
             "environmentInfo" -> {

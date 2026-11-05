@@ -170,6 +170,11 @@ function htmlToText(html) {
 
 `).trim();
 }
+function redactSecrets(input) {
+  if (!input)
+    return input;
+  return input.replace(/\b(\d{6,12}):(AA|A[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{30,}\b/g, "$1:<REDACTED_BOT_TOKEN>").replace(/(sk-[A-Za-z0-9_-]{10})[A-Za-z0-9_-]{10,}/g, "$1…<REDACTED>").replace(/(Bearer\s+)[A-Za-z0-9._-]{12,}/gi, "$1<REDACTED>").replace(/([?&](?:token|api_key|apikey|access_token|key)=)[^&\s"']+/gi, "$1<REDACTED>").replace(/("(?:token|api_key|apiKey|apiKeySecret|secret|password)"\s*:\s*")[^"]{8,}(")/g, "$1<REDACTED>$2");
+}
 function normalizeForMatch(input) {
   return input.replace(/\r\n/g, `
 `).replace(/[ \t]+$/gm, "");
@@ -1113,8 +1118,8 @@ class OpenCodeV2Engine {
       const numbered = slice.map((l, idx) => `${String(start + idx).padStart(4, " ")} | ${l}`).join(`
 `);
       return {
-        output: `File: ${rel} (${allLines.length} lines)
-${numbered}`,
+        output: redactSecrets(`File: ${rel} (${allLines.length} lines)
+${numbered}`),
         metadata: { filePath: rel, totalLines: allLines.length }
       };
     }
@@ -1223,10 +1228,20 @@ ${res.stderr}` : ""].filter(Boolean).join(`
 `).trim();
       session.time.updated = Date.now();
       await this.persist();
+      const background = res.background === true;
+      const header = background ? `Запущено в фоне (pid ${res.pid ?? "?"}) в ${targetDir}
+Живой лог: ${res.log ?? "(лог недоступен)"}
+` : `Exit code: ${res.exitCode} (${res.durationMs}ms) in ${targetDir}
+`;
       return {
-        output: `Exit code: ${res.exitCode} (${res.durationMs}ms) in ${targetDir}
-${combined || "(no output)"}`,
-        metadata: { exitCode: res.exitCode, durationMs: res.durationMs, command, workdir: targetDir }
+        output: redactSecrets(header + (combined || "(no output)")),
+        metadata: {
+          exitCode: res.exitCode,
+          durationMs: res.durationMs,
+          command,
+          workdir: targetDir,
+          ...background ? { background: true, pid: res.pid, log: res.log } : {}
+        }
       };
     }
     if (name === "todowrite") {
@@ -1807,7 +1822,9 @@ ${clipped}`,
         agentMode === "plan" ? "Active agent: PLAN (read-only). Inspect files, search code, and produce a clear implementation plan without modifying files." : "Active agent: BUILD (full access). Use read, list, glob, grep, write, edit, delete_file, and bash tools to inspect, build, edit, and verify code directly in the local workspace.",
         "Always read existing files before editing them, keep changes clean and accurate, and summarize what you accomplished concisely.",
         "The workspace can be ANY device directory (/storage/emulated/0/..., /sdcard/..., internal app storage). The bash tool accepts a `workdir` argument to run commands anywhere on the device, and PATH already contains a portable toolchain: bash, sh, curl, wget, git, jq, zip, unzip, tree, node, npm, python3, plus sed/awk/grep/find/tar from Android. Use those tools directly instead of claiming a command is unavailable.",
-        "Use todowrite for multi-step work and webfetch to read web pages or APIs."
+        "Use todowrite for multi-step work and webfetch to read web pages or APIs.",
+        "Long-running commands (bots, `while True` loops, pollers, dev servers, `python3 bot.py`, `node server.js`) are started in the background automatically: the tool returns a pid and a live log path instead of blocking. Never tell the user a bot 'did not start' because of a permission or interpreter error — `python3`, `node`, `curl`, `jq`, `git` are always available through the app runtime. To verify, pass a short `timeout` and a command that prints the first lines of the log (e.g. `tail -n 40 <log>`).",
+        "Never echo API keys, bot tokens or passwords in your final answer. They are stored in the user's files; if one is exposed, advise rotating it — but do not print it."
       ].join(`
 `);
       const tools = this.getToolDefinitions(agentMode);
@@ -2807,9 +2824,6 @@ ${clipped}`,
       }
       if (method === "POST" && path === "/api/vcs/init") {
         const loc = await this.resolveLocation(this.extractQueryLocation(url));
-        await this.host.execShell(loc.directory, "git init", 1e4).catch(() => {
-          return;
-        });
         return noContent();
       }
       if (method === "GET" && path === "/api/session/active") {
