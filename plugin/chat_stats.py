@@ -1,6 +1,9 @@
 import base64
 import datetime
+import os
 import re
+import threading
+import traceback
 
 from android_utils import copy_to_clipboard, run_on_ui_thread
 from base_plugin import BasePlugin, MenuItemData, MenuItemType
@@ -16,10 +19,11 @@ from ui.bulletin import BulletinHelper
 from ui.settings import Custom, Divider, Header, Input, Selector, Switch, Text
 
 try:
-    from org.telegram.messenger import AndroidUtilities, UserConfig
+    from org.telegram.messenger import AndroidUtilities, ApplicationLoader, UserConfig
     from org.telegram.tgnet import TLRPC
 except Exception:
     AndroidUtilities = None
+    ApplicationLoader = None
     UserConfig = None
     TLRPC = None
 
@@ -31,7 +35,7 @@ __description__ = (
     "Считается на телефоне: ни ботов, ни внешних сервисов."
 )
 __author__ = "@ox4gg"
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -468,27 +472,217 @@ def _export_stats(records, names):
     return _render_text(stats) if stats else "Нечего считать"
 
 
-def _write_archive(job):
-    import os
+_LOG_LOCK = threading.Lock()
+_LOG_FILE = None
+
+
+def _log_path():
+    global _LOG_FILE
+    if _LOG_FILE:
+        return _LOG_FILE
+    folders = []
+    try:
+        from file_utils import get_files_dir, get_cache_dir
+        folders.append(get_files_dir())
+        folders.append(get_cache_dir())
+    except Exception:
+        pass
+    try:
+        if ApplicationLoader is not None:
+            folders.append(str(ApplicationLoader.applicationContext.getFilesDir().getAbsolutePath()))
+    except Exception:
+        pass
+    folders.append(os.path.join(os.path.expanduser("~"), ".chat_stats"))
+    for base in folders:
+        if not base:
+            continue
+        try:
+            folder = os.path.join(str(base), "chat_stats")
+            os.makedirs(folder, exist_ok=True)
+            _LOG_FILE = os.path.join(folder, "chat_stats.log")
+            return _LOG_FILE
+        except Exception:
+            continue
+    _LOG_FILE = "chat_stats.log"
+    return _LOG_FILE
+
+
+def _log(message):
+    try:
+        path = _log_path()
+        stamp = datetime.datetime.now().strftime("%d.%m %H:%M:%S")
+        with _LOG_LOCK:
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write("%s %s\n" % (stamp, message))
+            if os.path.getsize(path) > 512 * 1024:
+                with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                    lines = handle.readlines()[-2000:]
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.writelines(lines)
+    except Exception:
+        pass
+
+
+def _log_tail(limit=400):
+    try:
+        with open(_log_path(), "r", encoding="utf-8", errors="replace") as handle:
+            lines = handle.readlines()
+        text = "".join(lines[-limit:]).strip()
+        return text or "Лог пока пуст"
+    except Exception as exc:
+        return "Лог недоступен: %s" % exc
+
+
+def _log_clear():
+    try:
+        with _LOG_LOCK:
+            with open(_log_path(), "w", encoding="utf-8") as handle:
+                handle.write("")
+        return True
+    except Exception:
+        return False
+
+
+def _probe_folder(path):
+    try:
+        os.makedirs(str(path), exist_ok=True)
+        probe = os.path.join(str(path), ".chat_stats_probe")
+        with open(probe, "w", encoding="utf-8") as handle:
+            handle.write("1")
+        os.remove(probe)
+        return True
+    except Exception:
+        return False
+
+
+def _ensure_folder(path):
+    try:
+        os.makedirs(str(path), exist_ok=True)
+    except Exception:
+        pass
+    return str(path)
+
+
+def _default_export_dir():
+    candidates = []
+    try:
+        from android.os import Environment
+        downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        candidates.append(os.path.join(str(downloads.getAbsolutePath()), "ChatStats"))
+    except Exception:
+        pass
+    try:
+        if ApplicationLoader is not None:
+            base = ApplicationLoader.applicationContext.getExternalFilesDir(None)
+            if base is not None:
+                candidates.append(os.path.join(str(base.getAbsolutePath()), "exports"))
+    except Exception:
+        pass
+    try:
+        from file_utils import get_cache_dir
+        candidates.append(os.path.join(str(get_cache_dir() or ""), "chat_stats"))
+    except Exception:
+        pass
+    candidates.append(os.path.join(os.path.expanduser("~"), ".chat_stats"))
+    for candidate in candidates:
+        if candidate and _probe_folder(candidate):
+            return candidate
+    return candidates[0]
+
+
+def _picker_roots():
+    roots = []
+    try:
+        from android.os import Environment
+        downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        documents = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        roots.append(str(downloads.getAbsolutePath()))
+        roots.append(str(documents.getAbsolutePath()))
+        roots.append(str(Environment.getExternalStorageDirectory().getAbsolutePath()))
+    except Exception:
+        pass
+    try:
+        if ApplicationLoader is not None:
+            base = ApplicationLoader.applicationContext.getExternalFilesDir(None)
+            if base is not None:
+                roots.append(str(base.getAbsolutePath()))
+    except Exception:
+        pass
+    unique = []
+    for root in roots:
+        if root and root not in unique:
+            unique.append(root)
+    return unique
+
+
+def _dir_entries(path):
+    from java.io import File
+    result = []
+    try:
+        items = File(str(path)).listFiles()
+    except Exception:
+        return result
+    for item in items or []:
+        try:
+            if not item.isDirectory():
+                continue
+            name = str(item.getName())
+            if name.startswith("."):
+                continue
+            result.append((name, str(item.getAbsolutePath())))
+        except Exception:
+            continue
+    result.sort(key=lambda pair: pair[0].lower())
+    return result
+
+
+def _parent_dir(path):
+    try:
+        from java.io import File
+        parent = File(str(path)).getParent()
+        return str(parent) if parent else ""
+    except Exception:
+        return ""
+
+
+def _short_path(path):
+    text = str(path or "")
+    for prefix, label in (("/storage/emulated/0", "память"), ("/storage/emulated", "память")):
+        if text.startswith(prefix):
+            return label + text[len(prefix):]
+    return text
+
+
+def _pack(path, records, names, title):
     import zipfile
-
-    from file_utils import ensure_dir_exists, get_cache_dir
-
-    names = job["names"]
-    records = sorted(job["messages"], key=lambda item: item["date"])
-    title = job["target"].get("title") or "chat"
-
-    base = get_cache_dir() or os.path.join(os.path.expanduser("~"), ".cache")
-    folder = os.path.join(base, "chat_stats")
-    ensure_dir_exists(folder)
-    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    path = os.path.join(folder, f"chat_{_slug(title)}_{stamp}.zip")
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("chat.txt", _export_text(records, names, title))
         archive.writestr("chat.csv", _export_csv(records, names))
         archive.writestr("chat.json", _export_json(records, names, title))
         archive.writestr("stats.txt", _export_stats(records, names))
+
+
+def _write_archive(job):
+    names = job["names"]
+    records = sorted(job["messages"], key=lambda item: item["date"])
+    title = job["target"].get("title") or "chat"
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    name = "chat_%s_%s.zip" % (_slug(title), stamp)
+
+    folder = _ensure_folder(job.get("dir") or _default_export_dir())
+    path = os.path.join(folder, name)
+    try:
+        _pack(path, records, names, title)
+        _log("zip saved: %s (%s messages)" % (path, len(records)))
+        return path
+    except Exception:
+        _log("zip failed in %s: %s" % (folder, traceback.format_exc()))
+
+    fallback = _ensure_folder(_default_export_dir())
+    path = os.path.join(fallback, name)
+    _pack(path, records, names, title)
+    _log("zip saved to fallback: %s" % path)
     return path
 
 
@@ -539,6 +733,7 @@ class ChatStatsPlugin(BasePlugin):
     def on_plugin_load(self):
         self._scan = None
         self._export = None
+        self._picker = None
         self._busy_dialog = None
         self._menu = self.add_menu_item(
             MenuItemData(
@@ -595,12 +790,25 @@ class ChatStatsPlugin(BasePlugin):
                 icon="msg_arrow_forward",
                 on_click=self._open_export,
             ),
+            Text(
+                text="Куда сохранять",
+                subtext=self._export_dir_label(),
+                icon="msg_list",
+                on_click=self._open_folder_picker,
+            ),
             Header(text="Вид"),
             Switch(
                 key="show_cover",
                 text="Показывать обложку",
                 default=True,
                 icon="msg_gallery",
+            ),
+            Header(text="Логи"),
+            Text(
+                text="Лог плагина",
+                subtext="Последние строки и отправка файла в Избранное",
+                icon="msg_info",
+                on_click=self._show_log,
             ),
             Divider(),
             Text(
@@ -638,6 +846,189 @@ class ChatStatsPlugin(BasePlugin):
             ),
         ]
 
+    def _export_dir(self):
+        try:
+            return str(self.get_setting("export_dir", "") or "")
+        except Exception:
+            return ""
+
+    def _export_dir_label(self):
+        return _short_path(self._export_dir() or _default_export_dir())
+
+    def _open_folder_picker(self, _view=None):
+        try:
+            self._picker = {"path": self._export_dir() or _default_export_dir(), "entries": []}
+            self._show_picker()
+        except Exception:
+            self.logger.exception("picker failed")
+            BulletinHelper.show_error("Не смог открыть выбор папки")
+
+    def _show_picker(self):
+        state = getattr(self, "_picker", None) or {"path": "", "entries": []}
+        self._picker = state
+        path = state.get("path") or ""
+        entries = []
+        parent = _parent_dir(path)
+        if parent and parent != path:
+            entries.append((".. наверх", "up", parent))
+        folders = _dir_entries(path)
+        for name, full in folders:
+            entries.append((name + "/", "dir", full))
+        if not folders:
+            entries.append(("(пусто или нет доступа)", "none", path))
+        state["entries"] = entries
+        try:
+            dialog = AlertDialogBuilder(self._activity())
+            dialog.set_title("Куда сохранять")
+            dialog.set_message(_short_path(path))
+            dialog.set_items([item[0] for item in entries], self._pick_entry)
+            dialog.set_positive_button("Сюда", self._choose_folder)
+            dialog.set_neutral_button("Начало", lambda builder, which: self._pick_root(builder))
+            dialog.set_negative_button("Отмена", lambda builder, which: builder.dismiss())
+            dialog.show()
+        except Exception:
+            self.logger.exception("picker dialog failed")
+            BulletinHelper.show_error("Не смог показать папки")
+
+    def _pick_root(self, builder):
+        try:
+            builder.dismiss()
+        except Exception:
+            pass
+        roots = _picker_roots()
+        if not roots:
+            BulletinHelper.show_error("Не нашёл папок на устройстве")
+            return
+        entries = [(_short_path(root), "dir", root) for root in roots]
+        state = getattr(self, "_picker", None) or {"path": "", "entries": []}
+        state["entries"] = entries
+        self._picker = state
+        try:
+            dialog = AlertDialogBuilder(self._activity())
+            dialog.set_title("Где искать")
+            dialog.set_items([item[0] for item in entries], self._pick_entry)
+            dialog.set_negative_button("Отмена", lambda which_builder, which: which_builder.dismiss())
+            dialog.show()
+        except Exception:
+            self.logger.exception("roots dialog failed")
+
+    def _pick_entry(self, builder, index):
+        state = getattr(self, "_picker", None) or {}
+        entries = state.get("entries") or []
+        if index < 0 or index >= len(entries):
+            return
+        kind = entries[index][1]
+        value = entries[index][2]
+        try:
+            builder.dismiss()
+        except Exception:
+            pass
+        if kind == "none":
+            return
+        state["path"] = value
+        self._picker = state
+        self._show_picker()
+
+    def _choose_folder(self, builder, which):
+        state = getattr(self, "_picker", None) or {}
+        path = state.get("path") or ""
+        try:
+            builder.dismiss()
+        except Exception:
+            pass
+        if not path:
+            return
+        if not _probe_folder(path):
+            _log("export dir rejected: %s" % path)
+            BulletinHelper.show_error("Сюда писать нельзя: %s" % _short_path(path))
+            return
+        self.set_setting("export_dir", path)
+        _log("export dir set: %s" % path)
+        BulletinHelper.show_success("Сохраняю в %s" % _short_path(path))
+
+    def _show_log(self, _view=None):
+        try:
+            text = _log_tail(400)
+            dialog = AlertDialogBuilder(self._activity())
+            dialog.set_title("Лог Chat Stats")
+            view = self._text_view(text, mono=True)
+            if view is not None:
+                dialog.set_view(view, self._view_height())
+            else:
+                dialog.set_message(text[:4000])
+            dialog.set_positive_button("Отправить", lambda builder, which: self._send_log())
+            dialog.set_neutral_button("Очистить", lambda builder, which: self._clear_log(builder))
+            dialog.set_negative_button("Закрыть", lambda builder, which: builder.dismiss())
+            dialog.show()
+        except Exception:
+            self.logger.exception("log dialog failed")
+            BulletinHelper.show_error("Не смог открыть лог")
+
+    def _text_view(self, text, mono=False):
+        try:
+            from android.graphics import Typeface
+            from android.widget import ScrollView, TextView
+            from org.telegram.ui.ActionBar import Theme
+
+            activity = self._activity()
+            if activity is None:
+                return None
+
+            widget = TextView(activity)
+            widget.setText(str(text))
+            widget.setTextSize(11 if mono else 14)
+            widget.setTextColor(Theme.getColor(Theme.key_dialogTextBlack))
+            widget.setTextIsSelectable(True)
+            if mono:
+                try:
+                    widget.setTypeface(Typeface.MONOSPACE)
+                except Exception:
+                    pass
+            widget.setPadding(
+                AndroidUtilities.dp(18),
+                AndroidUtilities.dp(8),
+                AndroidUtilities.dp(18),
+                AndroidUtilities.dp(8),
+            )
+
+            scroll = ScrollView(activity)
+            scroll.addView(widget)
+            return scroll
+        except Exception:
+            self.logger.exception("text view failed")
+            return None
+
+    def _send_log(self):
+        path = _log_path()
+        sent = False
+        try:
+            from client_utils import send_document
+
+            account = self._current_account()
+            peer_id = int(UserConfig.getInstance(account).getClientUserId())
+            try:
+                send_document(peer_id, path, caption="Chat Stats · лог", account=account)
+            except TypeError:
+                send_document(peer_id, path, caption="Chat Stats · лог")
+            sent = True
+        except Exception:
+            self.logger.exception("log send failed")
+        if sent:
+            BulletinHelper.show_success("Лог в Избранном")
+        else:
+            copy_to_clipboard(path)
+            BulletinHelper.show_info("Путь к логу скопирован")
+
+    def _clear_log(self, builder):
+        try:
+            builder.dismiss()
+        except Exception:
+            pass
+        if _log_clear():
+            BulletinHelper.show_success("Лог очищен")
+        else:
+            BulletinHelper.show_error("Не смог очистить лог")
+
     def _open_export(self, _view=None):
         try:
             activity = self._activity()
@@ -648,7 +1039,10 @@ class ChatStatsPlugin(BasePlugin):
             holder = self._input_holder(activity, field)
             dialog = AlertDialogBuilder(activity)
             dialog.set_title("Экспорт чата")
-            dialog.set_message("Впиши @username или ссылку t.me/…, либо выбери чат из списка.")
+            dialog.set_message(
+                "Впиши @username или ссылку t.me/…, либо выбери чат из списка.\n"
+                "Сохраню в: " + self._export_dir_label()
+            )
             dialog.set_view(holder, -2)
             dialog.set_positive_button(
                 "Дальше",
@@ -845,8 +1239,10 @@ class ChatStatsPlugin(BasePlugin):
             "finished": False,
             "progress": None,
             "token": 0,
+            "dir": self._export_dir() or _default_export_dir(),
         }
         self._export = job
+        _log("export start: %s limit=%s dir=%s" % (target.get("title"), limit, job["dir"]))
         self._export_progress(job)
         run_on_queue(lambda: self._export_request(job))
 
@@ -916,18 +1312,27 @@ class ChatStatsPlugin(BasePlugin):
             return
         try:
             self._handle_export_page(job, response, error)
-        except Exception:
+        except Exception as exc:
             self.logger.exception("export page failed")
-            self._export_fail(job, "Сломалось на скачивании истории")
+            _log("export page failed: " + traceback.format_exc())
+            self._export_fail(job, "Сломалось на шаге «%s»: %s" % (job.get("step", "разбор"), exc))
 
     def _handle_export_page(self, job, response, error):
+        job["step"] = "ответ"
         if error is not None:
             text = _error_text(error)
-            self._export_fail(job, text or "Telegram не ответил")
+            _log("export page error: %s" % (text or repr(error)))
+            if text:
+                self._export_fail(job, text)
+            else:
+                self._export_fail(job, "Сломалось на шаге «%s»: %s" % (job.get("step", "разбор"), _cut(str(error), 90)))
             return
 
+        job["step"] = "сообщения"
         messages = list(getattr(response, "messages", None) or [])
+        job["step"] = "имена"
         self._collect_names(job["names"], response)
+        job["step"] = "разбор"
         for message in messages:
             record = _export_record(message)
             if record is not None:
@@ -947,6 +1352,7 @@ class ChatStatsPlugin(BasePlugin):
         job["pages"] += 1
         self._export_progress_value(job)
         self.logger.debug("export page %s: %s messages", job["pages"], len(job["messages"]))
+        _log("export page %s: got=%s total=%s oldest=%s" % (job["pages"], len(messages), len(job["messages"]), oldest))
 
         if done:
             run_on_queue(lambda: self._export_finish(job), PLUGINS_QUEUE, 30)
@@ -963,6 +1369,7 @@ class ChatStatsPlugin(BasePlugin):
             path = _write_archive(job)
         except Exception:
             self.logger.exception("archive failed")
+        _log("export archive ready: %s" % path)
         run_on_ui_thread(lambda: self._export_done(job, path))
 
     def _export_done(self, job, path):
@@ -993,11 +1400,13 @@ class ChatStatsPlugin(BasePlugin):
             sent = True
         except Exception:
             self.logger.exception("send failed")
+        where = _short_path(path)
+        _log("export done: %s sent=%s" % (path, sent))
         if sent:
-            BulletinHelper.show_success(f"Готово, zip в Избранном ({_fmt(count)})")
+            BulletinHelper.show_success("Готово: %s" % where)
         else:
             copy_to_clipboard(path)
-            BulletinHelper.show_info("Файл на месте, путь скопирован")
+            BulletinHelper.show_info("Файл сохранён: %s" % where)
 
     def _export_fail(self, job, message):
         if job["finished"]:
@@ -1202,6 +1611,7 @@ class ChatStatsPlugin(BasePlugin):
             "smart": self._smart_words(),
         }
         self._scan = scan
+        _log("scan start: dialog=%s limit=%s skip_service=%s" % (dialog_id, scan["limit"], scan["skip_service"]))
         self._progress_dialog(scan, self._title(dialog_id, account))
         run_on_queue(lambda: self._request(scan))
 
@@ -1236,6 +1646,7 @@ class ChatStatsPlugin(BasePlugin):
             request.min_id = 0
             request.hash = 0
             self._arm_watchdog(scan)
+            _log("request page: offset=%s" % scan["offset"])
             callback = lambda response, error: run_on_queue(lambda: self._page(scan, response, error))
             try:
                 send_request(request, callback, account=scan["account"])
@@ -1257,6 +1668,7 @@ class ChatStatsPlugin(BasePlugin):
         if not scan["active"] or scan["finished"] or scan.get("token") != token:
             return
         self.logger.error("no answer for %s ms, giving up", WATCHDOG_MS)
+        _log("watchdog: no answer in %s ms" % WATCHDOG_MS)
         self._fail(scan, "Telegram не ответил, попробуй ещё раз")
 
     def _page(self, scan, response, error):
@@ -1264,34 +1676,48 @@ class ChatStatsPlugin(BasePlugin):
             return
         try:
             self._handle_page(scan, response, error)
-        except Exception:
+        except Exception as exc:
             self.logger.exception("history page failed")
-            self._fail(scan, "Сломалось на чтении истории, глянь лог")
+            _log("page failed: " + traceback.format_exc())
+            self._fail(scan, "Сломалось на шаге «%s»: %s" % (scan.get("step", "разбор"), exc))
 
     def _handle_page(self, scan, response, error):
+        scan["step"] = "ответ"
         if error is not None:
             text = _error_text(error)
-            self._fail(scan, text or "Telegram не ответил")
+            _log("page error: %s" % (text or repr(error)))
+            if text:
+                self._fail(scan, text)
+            else:
+                self._fail(scan, "Сломалось на шаге «%s»: %s" % (scan.get("step", "разбор"), _cut(str(error), 90)))
             return
         if response is None:
+            _log("page error: empty response")
             self._fail(scan, "Telegram не ответил")
             return
 
+        scan["step"] = "сообщения"
         messages = list(getattr(response, "messages", None) or [])
         scan["fetched"] += len(messages)
         scan["pages"] += 1
+
+        scan["step"] = "имена"
         self._collect_names(scan["names"], response)
 
+        scan["step"] = "разбор"
         skip_service = scan.get("skip_service", True)
         for message in messages:
             record = _extract(message, skip_service)
             if record is not None:
                 scan["records"].append(record)
 
+        scan["step"] = "подсчёт"
         self._progress(scan)
 
         ids = [int(getattr(message, "id", 0) or 0) for message in messages]
         oldest = min([value for value in ids if value > 0], default=0)
+        _log("page %s: fetched=%s kept=%s oldest=%s" % (scan["pages"], scan["fetched"], len(scan["records"]), oldest))
+
         enough = (
             oldest <= 0
             or oldest == scan["offset"]
@@ -1299,10 +1725,6 @@ class ChatStatsPlugin(BasePlugin):
             or scan["pages"] >= MAX_PAGES
             or scan["fetched"] >= EXPORT_CAP
             or (scan["limit"] and scan["fetched"] >= scan["limit"])
-        )
-        self.logger.debug(
-            "page %s: fetched %s, kept %s, oldest %s",
-            scan["pages"], scan["fetched"], len(scan["records"]), oldest,
         )
 
         if enough:
@@ -1365,6 +1787,7 @@ class ChatStatsPlugin(BasePlugin):
             self.logger.exception("aggregate failed")
             stats = None
         self.logger.info("scan done: %s pages, %s messages", scan["pages"], scan["fetched"])
+        _log("scan done: pages=%s fetched=%s kept=%s" % (scan["pages"], scan["fetched"], len(scan["records"])))
         run_on_ui_thread(lambda: self._show(scan, stats))
 
     def _resolve_names(self, scan):
@@ -1521,6 +1944,7 @@ class ChatStatsPlugin(BasePlugin):
         scan["finished"] = True
         scan["active"] = False
         self.logger.error("scan failed: %s", message)
+        _log("scan failed: %s" % message)
         run_on_ui_thread(lambda: self._show_error(scan, message))
 
     def _show_error(self, scan, message):
