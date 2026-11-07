@@ -21,6 +21,7 @@
     this.flags = new Uint8Array(this.n);
     this.tmp.fill(AMBIENT);
     this.frame = 0;
+    this.ambient = AMBIENT;      // климат мира: в арктике отрицательный
     this.recipesSeen = {};
     this.onRecipe = null;
     this.onEvent = null;
@@ -229,6 +230,32 @@
 
   /* ---------------- реакции ---------------- */
 
+  // Клетка контактирует с воздухом (тает/сохнет с поверхности)
+  World.prototype.exposedToAir = function (x, y) {
+    var W = this.W, H = this.H;
+    if (y > 0 && this.mat[(y - 1) * W + x] === M.EMPTY) return true;
+    if (y + 1 < H && this.mat[(y + 1) * W + x] === M.EMPTY) return true;
+    if (x > 0 && this.mat[y * W + x - 1] === M.EMPTY) return true;
+    if (x + 1 < W && this.mat[y * W + x + 1] === M.EMPTY) return true;
+    return false;
+  };
+
+  // Есть ли рядом источник тепла / тёплая клетка
+  World.prototype.warmNeighbor = function (x, y, threshold) {
+    var W = this.W, H = this.H;
+    for (var k = 0; k < 4; k++) {
+      var nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0);
+      var ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      var j = ny * W + nx;
+      var m = this.mat[j];
+      if (m === M.EMPTY) continue;
+      if (this.tmp[j] > threshold) return true;
+      if (m === M.LAVA || m === M.FIRE || m === M.MOLTEN_METAL || m === M.MOLTEN_GLASS) return true;
+    }
+    return false;
+  };
+
   World.prototype.neighborFuel = function (x, y) {
     var W = this.W, H = this.H;
     for (var k = 0; k < 4; k++) {
@@ -243,18 +270,21 @@
 
   World.prototype.igniteNeighbors = function (x, y, chance) {
     var W = this.W, H = this.H;
-    for (var k = 0; k < 4; k++) {
-      if (Math.random() > chance) continue;
-      var nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0);
-      var ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+    for (var k = 0; k < 8; k++) {
+      if (k >= 4 && Math.random() > chance * 0.6) continue;
+      if (k < 4 && Math.random() > chance) continue;
+      var ox = [1, -1, 0, 0, 1, 1, -1, -1][k];
+      var oy = [0, 0, 1, -1, 1, -1, 1, -1][k];
+      var nx = x + ox, ny = y + oy;
       if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      var m = this.mat[ny * W + nx];
+      var j = ny * W + nx;
+      var m = this.mat[j];
       if (m === M.EMPTY || m === M.FIRE) continue;
       if (m === M.WATER || m === M.ICE || m === M.SNOW || m === M.SALTWATER) continue;
       var mm = MATS[m];
       if (!mm.flam) continue;
       if (m === M.GUNPOWDER) { this.explode(nx, ny, 7); continue; }
-      if (Math.random() < mm.flam) this.set(nx, ny, M.FIRE, Math.max(this.tmp[ny * W + nx], 620));
+      if (m === M.OIL || Math.random() < mm.flam) this.set(nx, ny, M.FIRE, Math.max(this.tmp[j], 620));
     }
   };
 
@@ -311,6 +341,18 @@
     var W = this.W, H = this.H;
     var mat = this.mat[i], mt = MATS[mat], t = this.tmp[i];
 
+    // Порох: касание огня или лавы — мгновенная детонация
+    if (mat === M.GUNPOWDER) {
+      if (t > 240) { this.explode(x, y, 7); return; }
+      for (var g = 0; g < 4; g++) {
+        var gx = x + (g === 0 ? 1 : g === 1 ? -1 : 0);
+        var gy = y + (g === 2 ? 1 : g === 3 ? -1 : 0);
+        if (gx < 0 || gy < 0 || gx >= W || gy >= H) continue;
+        var gm = this.mat[gy * W + gx];
+        if (gm === M.FIRE || gm === M.LAVA) { this.explode(x, y, 7); return; }
+      }
+    }
+
     /* --- фазовые переходы --- */
     if (mat === M.WATER) {
       if (t < -4 && Math.random() < 0.3) { this.set(x, y, M.ICE, t); return; }
@@ -346,6 +388,24 @@
     }
 
     if (mat === M.MUD && t > 85 && Math.random() < 0.02) { this.set(x, y, M.DIRT, t); return; }
+
+    // Снег и лёд оценивают ОКРУЖЕНИЕ, а не только собственную температуру:
+    // иначе одна тёплая соседняя клетка «съедается» воздухом и не видна.
+    // Снег и лёд тают с поверхности: открытая воздуху клетка теплеет и течёт.
+    // Внутри сугроба холод сохраняется — как в реальности.
+    if (mat === M.SNOW) {
+      if (this.warmNeighbor(x, y, 0.5)) {
+        if (Math.random() < 0.5) { this.set(x, y, M.WATER, 4, true); return; }
+      } else if (this.exposedToAir(x, y) && Math.random() < 0.006) {
+        this.set(x, y, M.WATER, 4, true); return;
+      }
+    } else if (mat === M.ICE) {
+      if (this.warmNeighbor(x, y, 1.5)) {
+        if (Math.random() < 0.4) { this.set(x, y, M.WATER, 4, true); return; }
+      } else if (this.exposedToAir(x, y) && Math.random() < 0.0016) {
+        this.set(x, y, M.WATER, 3, true); return;
+      }
+    }
 
     if (mat === M.SEED) {
       var dirt = false, wet = false;
@@ -486,6 +546,7 @@
 
   World.prototype.conduct = function (i, x, y) {
     var W = this.W, H = this.H, t = this.tmp[i], mt = MATS[this.mat[i]];
+    var AMBIENT = this.ambient;
     if (t > AMBIENT - 0.4 && t < AMBIENT + 0.4) {
       var hot = false;
       if (x > 0 && Math.abs(this.tmp[i - 1] - AMBIENT) > 6) hot = true;
@@ -502,8 +563,8 @@
       if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
       var j = ny * W + nx, om = this.mat[j];
       if (om === M.EMPTY) {
-        // воздух хранит тепло; потеря — только малой долей за шаг
-        t += (AMBIENT - t) * 0.00035;
+        // воздух — изолятор: крошечная утечка, без «сброса» горячей клетки
+        t += (AMBIENT - t) * 0.00018;
         continue;
       }
       var oc = MATS[om].cond < mt.cond ? MATS[om].cond : mt.cond;
@@ -560,6 +621,7 @@
             continue;
           }
           // сначала поджигаем соседей — иначе пламя успевает улететь вверх
+          this.igniteNeighbors(x, y, 0.75);
           this.reactAt(i, x, y);
           if (this.mat[i] !== M.FIRE) continue;
           var fuelNear = this.neighborFuel(x, y);
@@ -581,6 +643,14 @@
         }
 
         if (type === MT.POWDER) {
+          // порох должен «увидеть» огонь в том же кадре, даже если лежит ниже
+          if (m === M.GUNPOWDER) {
+            this.reactAt(i, x, y);
+            if (this.mat[i] !== M.GUNPOWDER) continue;
+          }
+          // тающий снег проверяем ДО падения (иначе он вечно «летит вниз»)
+          if (m === M.SNOW || m === M.ICE) this.reactAt(i, x, y);
+          if ((m === M.SNOW || m === M.ICE) && this.mat[i] !== m) continue;
           if (this.doPowder(i, x, y)) continue;
         } else if (type === MT.LIQUID) {
           if (this.doLiquid(i, x, y)) continue;
@@ -679,6 +749,8 @@
     this.aux.fill(0);
     this.tmp.fill(AMBIENT);
     var seed = Math.random() * 1000;
+    this.ambient = (kind === 'ice') ? -14 : (kind === 'volcano' ? 34 : AMBIENT);
+    this.tmp.fill(this.ambient);
 
     if (kind === 'empty') {
       for (x = 0; x < W; x++) {
@@ -722,16 +794,18 @@
 
     if (kind === 'ice') {
       for (x = 0; x < W; x++) {
-        var icy = H * 0.55 + noise1(x, 0.016, seed) * 20;
+        var icy = H * 0.5 + noise1(x, 0.016, seed) * 22 + noise1(x, 0.05, seed * 2) * 6;
         for (y = Math.floor(icy); y < H; y++) {
           var di = y - icy;
-          this.set(x, y, di < 3 ? M.SNOW : di < 8 ? M.ICE : M.STONE, -14);
+          var mi = di < 4 ? M.SNOW : di < 12 ? M.ICE : (di < 16 ? M.ICE : M.STONE);
+          this.set(x, y, mi, -16);
         }
       }
+      // замёрзшие полыньи: лёд с трещинами
       for (var w2 = 0; w2 < 3; w2++) {
-        var wx = (W * (0.2 + Math.random() * 0.6)) | 0;
-        var wy = (H * 0.5) | 0;
-        this.paint(wx, wy, 14, M.WATER, false);
+        var wx = (W * (0.18 + Math.random() * 0.64)) | 0;
+        var wy = Math.floor(H * (0.52 + Math.random() * 0.08));
+        this.paint(wx, wy, 10 + ((Math.random() * 6) | 0), M.ICE, false);
       }
       this.dirty = true;
       return;
@@ -792,11 +866,10 @@
         if (inLake && dy < 4) mm = M.SAND;         // песчаное дно
         else if (dy < 6) mm = inLake ? M.SAND : M.DIRT;
         else mm = M.STONE;
-        if (dy > 10) {
-          // тонкие гравийные жилы: линия уровня шума, а не пятна
-          var vx = x * 0.045, vy = y * 0.045;
-          var vv = fbmSpread(vx, vy, seed * 7.3);
-          if (Math.abs(vv - 0.5) < 0.035) mm = M.GRAVEL;
+        if (dy > 6 && dy < 26) {
+          // линзы гравия в верхней породе (видны как вкрапления, не как линии)
+          var vv = fbmSpread(x * 0.035, y * 0.035, seed * 7.3);
+          if (vv < 0.16) mm = M.GRAVEL;
         }
         this.set(x, y, mm);
       }

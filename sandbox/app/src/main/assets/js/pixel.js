@@ -9,7 +9,7 @@
   var M = global.M, MATS = global.MATS;
 
   var COLORS = [];
-  var SPREAD = 0.34;
+  var SPREAD = 0.85;
   var NOISE = null, NSIZE = 256;
   var ready = false;
 
@@ -96,15 +96,18 @@
       if (!col) { d[o + 3] = 255; g[o + 3] = 0; continue; }
       var v = var8[i];
       var nc = col[0].length;
+      // Два близких оттенка на крупных пятнах 4x4 — «порода», а не шахматка
       var idx = 0;
-      if (nc > 1 && (v & 31) === 0) idx = 1 + ((v >> 5) % (nc - 1));
+      if (nc > 1 && (v & 96) === 0) idx = 1;
       var r = col[0][idx], gg = col[1][idx], b = col[2][idx];
 
-      var shade = nz(x, y) * 14 + nz(x + 61, y + 97) * 6;
+      // лёгкая объёмная тень по крупному шуму (не рябь!)
+      var shade = nz(x >> 3, y >> 3) * 9;
       r += shade; gg += shade; b += shade;
 
-      if (y + 1 < H && mat[i + W] === 0) { r -= 30; gg -= 30; b -= 32; }
-      else if (y > 0 && mat[i - W] === 0) { r += 20; gg += 20; b += 17; }
+      if (y + 1 < H && mat[i + W] === 0) { r -= 34; gg -= 34; b -= 36; }
+      else if (y > 0 && mat[i - W] === 0) { r += 24; gg += 24; b += 18; }
+
 
       var t = tmp[i];
       if (t > 120) {
