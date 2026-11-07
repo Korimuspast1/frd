@@ -35,11 +35,12 @@ __description__ = (
     "Считается на телефоне: ни ботов, ни внешних сервисов."
 )
 __author__ = "@ox4gg"
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
 __category__ = ["chats", "tools"]
+__permissions__ = ["network", "messages.send", "files"]
 
 
 FILLER_SHARE = 0.35
@@ -319,8 +320,28 @@ def _pause_rows(stats):
     return [f"{gap} — {day}, {who}" for gap, day, who in stats["pauses"]]
 
 
+def _to_list(value):
+    if value is None:
+        return []
+    try:
+        return list(value)
+    except BaseException:
+        pass
+    try:
+        size = int(value.size())
+    except BaseException:
+        return []
+    items = []
+    for index in range(size):
+        try:
+            items.append(value.get(index))
+        except BaseException:
+            break
+    return items
+
+
 def _find_by_id(items, value):
-    for item in items or []:
+    for item in _to_list(items):
         try:
             if int(getattr(item, "id", 0) or 0) == int(value):
                 return item
@@ -485,12 +506,12 @@ def _log_path():
         from file_utils import get_files_dir, get_cache_dir
         folders.append(get_files_dir())
         folders.append(get_cache_dir())
-    except Exception:
+    except BaseException:
         pass
     try:
         if ApplicationLoader is not None:
             folders.append(str(ApplicationLoader.applicationContext.getFilesDir().getAbsolutePath()))
-    except Exception:
+    except BaseException:
         pass
     folders.append(os.path.join(os.path.expanduser("~"), ".chat_stats"))
     for base in folders:
@@ -501,7 +522,7 @@ def _log_path():
             os.makedirs(folder, exist_ok=True)
             _LOG_FILE = os.path.join(folder, "chat_stats.log")
             return _LOG_FILE
-        except Exception:
+        except BaseException:
             continue
     _LOG_FILE = "chat_stats.log"
     return _LOG_FILE
@@ -519,7 +540,7 @@ def _log(message):
                     lines = handle.readlines()[-2000:]
                 with open(path, "w", encoding="utf-8") as handle:
                     handle.writelines(lines)
-    except Exception:
+    except BaseException:
         pass
 
 
@@ -539,7 +560,7 @@ def _log_clear():
             with open(_log_path(), "w", encoding="utf-8") as handle:
                 handle.write("")
         return True
-    except Exception:
+    except BaseException:
         return False
 
 
@@ -551,14 +572,14 @@ def _probe_folder(path):
             handle.write("1")
         os.remove(probe)
         return True
-    except Exception:
+    except BaseException:
         return False
 
 
 def _ensure_folder(path):
     try:
         os.makedirs(str(path), exist_ok=True)
-    except Exception:
+    except BaseException:
         pass
     return str(path)
 
@@ -569,19 +590,19 @@ def _default_export_dir():
         from android.os import Environment
         downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         candidates.append(os.path.join(str(downloads.getAbsolutePath()), "ChatStats"))
-    except Exception:
+    except BaseException:
         pass
     try:
         if ApplicationLoader is not None:
             base = ApplicationLoader.applicationContext.getExternalFilesDir(None)
             if base is not None:
                 candidates.append(os.path.join(str(base.getAbsolutePath()), "exports"))
-    except Exception:
+    except BaseException:
         pass
     try:
         from file_utils import get_cache_dir
         candidates.append(os.path.join(str(get_cache_dir() or ""), "chat_stats"))
-    except Exception:
+    except BaseException:
         pass
     candidates.append(os.path.join(os.path.expanduser("~"), ".chat_stats"))
     for candidate in candidates:
@@ -599,14 +620,14 @@ def _picker_roots():
         roots.append(str(downloads.getAbsolutePath()))
         roots.append(str(documents.getAbsolutePath()))
         roots.append(str(Environment.getExternalStorageDirectory().getAbsolutePath()))
-    except Exception:
+    except BaseException:
         pass
     try:
         if ApplicationLoader is not None:
             base = ApplicationLoader.applicationContext.getExternalFilesDir(None)
             if base is not None:
                 roots.append(str(base.getAbsolutePath()))
-    except Exception:
+    except BaseException:
         pass
     unique = []
     for root in roots:
@@ -620,7 +641,7 @@ def _dir_entries(path):
     result = []
     try:
         items = File(str(path)).listFiles()
-    except Exception:
+    except BaseException:
         return result
     for item in items or []:
         try:
@@ -630,7 +651,7 @@ def _dir_entries(path):
             if name.startswith("."):
                 continue
             result.append((name, str(item.getAbsolutePath())))
-        except Exception:
+        except BaseException:
             continue
     result.sort(key=lambda pair: pair[0].lower())
     return result
@@ -641,7 +662,7 @@ def _parent_dir(path):
         from java.io import File
         parent = File(str(path)).getParent()
         return str(parent) if parent else ""
-    except Exception:
+    except BaseException:
         return ""
 
 
@@ -735,24 +756,60 @@ class ChatStatsPlugin(BasePlugin):
         self._export = None
         self._picker = None
         self._busy_dialog = None
-        self._menu = self.add_menu_item(
-            MenuItemData(
-                menu_type=MenuItemType.CHAT_ACTION_MENU,
-                text="Статистика чата",
-                item_id="chat_stats_open",
-                icon="msg_info",
-                priority=10,
-                on_click=self._on_menu,
+        try:
+            self._menu = self.add_menu_item(
+                MenuItemData(
+                    menu_type=MenuItemType.CHAT_ACTION_MENU,
+                    text="Статистика чата",
+                    item_id="chat_stats_open",
+                    icon="msg_info",
+                    priority=10,
+                    on_click=self._on_menu,
+                )
             )
-        )
+            self._panel_item = self.add_menu_item(
+                MenuItemData(
+                    menu_type=MenuItemType.CHAT_ACTION_MENU,
+                    text="Chat Stats: настройки",
+                    item_id="chat_stats_panel",
+                    icon="msg_settings",
+                    priority=11,
+                    on_click=self._open_panel,
+                )
+            )
+            _log("loaded %s" % __version__)
+        except BaseException:
+            self.logger.exception("menu registration failed")
 
     def on_plugin_unload(self):
         self._cancel()
         self._export_cancel()
 
     def create_settings(self):
-        return [
-            Custom(view=self._cover_view()),
+        try:
+            rows = self._settings_rows()
+        except BaseException:
+            self.logger.exception("settings build failed")
+            rows = []
+        rows.append(
+            Text(
+                text="О плагине",
+                subtext="Версия %s · %s" % (__version__, __author__),
+                icon="msg_info",
+                create_sub_fragment=self._about_page,
+            )
+        )
+        return rows
+
+    def _settings_rows(self):
+        rows = []
+        try:
+            cover = self._cover_view()
+        except BaseException:
+            cover = None
+        if cover is not None:
+            rows.append(Custom(view=cover))
+        rows.extend([
             Header(text="Статистика"),
             Selector(
                 key="depth",
@@ -811,13 +868,8 @@ class ChatStatsPlugin(BasePlugin):
                 on_click=self._show_log,
             ),
             Divider(),
-            Text(
-                text="О плагине",
-                subtext=f"Версия {__version__} · {__author__}",
-                icon="msg_info",
-                create_sub_fragment=self._about_page,
-            ),
-        ]
+        ])
+        return rows
 
     def _about_page(self):
         return [
@@ -853,13 +905,43 @@ class ChatStatsPlugin(BasePlugin):
             return ""
 
     def _export_dir_label(self):
-        return _short_path(self._export_dir() or _default_export_dir())
+        path = self._export_dir()
+        if path:
+            return _short_path(path)
+        cached = getattr(self, "_dir_label", None)
+        return cached or "Download/ChatStats"
+
+    def _open_panel(self, _context=None):
+        try:
+            dialog = AlertDialogBuilder(self._activity())
+            dialog.set_title("Chat Stats")
+            dialog.set_message("Версия %s · %s" % (__version__, __author__))
+            dialog.set_items(
+                ["Лог плагина", "Куда сохранять архив", "Экспорт чата в zip"],
+                self._pick_panel,
+            )
+            dialog.set_negative_button("Закрыть", lambda builder, which: builder.dismiss())
+            dialog.show()
+        except BaseException:
+            self.logger.exception("panel failed")
+            BulletinHelper.show_error("Не открылось окно настроек")
+
+    def _pick_panel(self, builder, index):
+        try:
+            builder.dismiss()
+        except BaseException:
+            pass
+        actions = (self._show_log, self._open_folder_picker, self._open_export)
+        if 0 <= index < len(actions):
+            actions[index](None)
 
     def _open_folder_picker(self, _view=None):
         try:
-            self._picker = {"path": self._export_dir() or _default_export_dir(), "entries": []}
+            path = self._export_dir() or _default_export_dir()
+            self._dir_label = _short_path(path)
+            self._picker = {"path": path, "entries": []}
             self._show_picker()
-        except Exception:
+        except BaseException:
             self.logger.exception("picker failed")
             BulletinHelper.show_error("Не смог открыть выбор папки")
 
@@ -943,6 +1025,7 @@ class ChatStatsPlugin(BasePlugin):
             BulletinHelper.show_error("Сюда писать нельзя: %s" % _short_path(path))
             return
         self.set_setting("export_dir", path)
+        self._dir_label = _short_path(path)
         _log("export dir set: %s" % path)
         BulletinHelper.show_success("Сохраняю в %s" % _short_path(path))
 
@@ -1120,8 +1203,8 @@ class ChatStatsPlugin(BasePlugin):
             return
         target = self._target_from_peer(
             getattr(response, "peer", None),
-            list(getattr(response, "users", None) or []),
-            list(getattr(response, "chats", None) or []),
+            _to_list(getattr(response, "users", None)),
+            _to_list(getattr(response, "chats", None)),
             account,
         )
         if target is None:
@@ -1168,10 +1251,10 @@ class ChatStatsPlugin(BasePlugin):
         if error is not None or response is None:
             BulletinHelper.show_error("Список не открылся, впиши @username")
             return
-        users = list(getattr(response, "users", None) or [])
-        chats = list(getattr(response, "chats", None) or [])
+        users = _to_list(getattr(response, "users", None))
+        chats = _to_list(getattr(response, "chats", None))
         targets = []
-        for dialog in getattr(response, "dialogs", None) or []:
+        for dialog in _to_list(getattr(response, "dialogs", None)):
             target = self._target_from_peer(getattr(dialog, "peer", None), users, chats, account)
             if target is not None:
                 targets.append(target)
@@ -1241,6 +1324,7 @@ class ChatStatsPlugin(BasePlugin):
             "token": 0,
             "dir": self._export_dir() or _default_export_dir(),
         }
+        self._dir_label = _short_path(job["dir"])
         self._export = job
         _log("export start: %s limit=%s dir=%s" % (target.get("title"), limit, job["dir"]))
         self._export_progress(job)
@@ -1329,7 +1413,7 @@ class ChatStatsPlugin(BasePlugin):
             return
 
         job["step"] = "сообщения"
-        messages = list(getattr(response, "messages", None) or [])
+        messages = _to_list(getattr(response, "messages", None))
         job["step"] = "имена"
         self._collect_names(job["names"], response)
         job["step"] = "разбор"
@@ -1697,7 +1781,7 @@ class ChatStatsPlugin(BasePlugin):
             return
 
         scan["step"] = "сообщения"
-        messages = list(getattr(response, "messages", None) or [])
+        messages = _to_list(getattr(response, "messages", None))
         scan["fetched"] += len(messages)
         scan["pages"] += 1
 
@@ -1736,7 +1820,7 @@ class ChatStatsPlugin(BasePlugin):
 
     def _collect_names(self, names, response):
         try:
-            for user in getattr(response, "users", None) or []:
+            for user in _to_list(getattr(response, "users", None)):
                 user_id = int(getattr(user, "id", 0) or 0)
                 if not user_id:
                     continue
@@ -1750,7 +1834,7 @@ class ChatStatsPlugin(BasePlugin):
         except Exception:
             pass
         try:
-            for chat in getattr(response, "chats", None) or []:
+            for chat in _to_list(getattr(response, "chats", None)):
                 chat_id = int(getattr(chat, "id", 0) or 0)
                 if not chat_id:
                     continue
