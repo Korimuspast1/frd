@@ -11,12 +11,110 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: sandbox-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KEYSTORE_FILE: sandbox-testkey.p12
+  KEYSTORE_PASSWORD: android
+  KEY_ALIAS: sandbox
+  KEY_PASSWORD: android
+
 jobs:
-  probe:
-    name: Environment probe
+  build:
+    name: Собрать APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Probe
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ключ подписи (AOSP testkey)
         run: |
-          echo "runner ok"; java -version; echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME" 2>/dev/null | head
+          set -euo pipefail
+          curl -fsSL -o /tmp/platform.pk8 \
+            https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.pk8
+          curl -fsSL -o /tmp/platform.x509.pem \
+            https://raw.githubusercontent.com/aosp-mirror/platform_build/master/target/product/security/testkey.x509.pem
+          openssl pkcs8 -inform DER -nocrypt -in /tmp/platform.pk8 -out /tmp/platform.key
+          openssl pkcs12 -export \
+            -in /tmp/platform.x509.pem -inkey /tmp/platform.key \
+            -name "$KEY_ALIAS" -out "$KEYSTORE_FILE" \
+            -password "pass:$KEYSTORE_PASSWORD"
+          cat > signing.properties <<PROPS
+          KEYSTORE_FILE=$KEYSTORE_FILE
+          KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD
+          KEYSTORE_TYPE=PKCS12
+          KEY_ALIAS=$KEY_ALIAS
+          KEY_PASSWORD=$KEY_PASSWORD
+          PROPS
+          ls -la "$KEYSTORE_FILE" signing.properties
+
+      - name: Сборка
+        working-directory: sandbox
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Проверка подписи
+        run: |
+          set -euo pipefail
+          APK=$(find sandbox/app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "APK=$APK"
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "$APK" || true
+          ls -lh "$APK"
+
+      - name: Выложить артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-apk
+          path: sandbox/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Положить APK в репозиторий
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          APK=$(find sandbox/app/build/outputs/apk/release -name '*.apk' | head -1)
+          cp "$APK" out/sandbox.apk
+          cd out
+          sha256sum sandbox.apk > sandbox.apk.sha256
+          cd ..
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f out/sandbox.apk out/sandbox.apk.sha256
+          git commit -m "build(sandbox): APK $(date -u +%Y-%m-%d-%H%M)" || echo "нет изменений"
+          git push origin HEAD:"${GITHUB_REF_NAME}"
+
+      - name: Публикация релиза
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="sandbox-v1.0.$(date -u +%Y%m%d%H%M)"
+          gh release create "$TAG" out/sandbox.apk \
+            --title "Песочница $TAG" \
+            --notes "Пиксельная физическая песочница для Android.
+
+          **Установка:** скачай \`sandbox.apk\` ниже и открой на телефоне (разреши установку из этого источника).
+
+          **Что внутри:**
+          - 28 материалов: песок, камень, вода, лава, лёд, снег, нефть, кислота, порох и другие
+          - реальная клеточная физика: плотности, текучесть, тепло, испарение и замерзание
+          - автоматические реакции: лава + вода = камень и пар, песок + лава = стекло, порох + огонь = взрыв
+          - панель материалов снизу, кисть, ластик, закрепление блоков, сохранение мира
+          - вертикальный интерфейс под телефон" \
+            || echo "релиз уже существует"
+          gh release view "$TAG" --json url --jq '.url' || true

@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#12141a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Песочница</title>
+<style>
+@font-face {
+  font-family: 'Rubik';
+  src: url('fonts/rubik-cyrillic-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Rubik';
+  src: url('fonts/rubik-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --bg: #0d0f14;
+  --panel: #1b1f28;
+  --panel2: #262b36;
+  --line: #363d4b;
+  --text: #eef2f8;
+  --muted: #94a0b4;
+  --accent: #ffc233;
+  --accent2: #ff8a3d;
+  --danger: #ff5b52;
+  --ui-h: 208px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font-family: 'Rubik', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 500;
+  user-select: none; -webkit-user-select: none;
+  touch-action: none; overscroll-behavior: none;
+}
+
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+/* ---------- сцена ---------- */
+#stage {
+  position: relative; flex: 1 1 auto; min-height: 0;
+  overflow: hidden; background: #0a0c11;
+  touch-action: none;
+}
+#view {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; image-rendering: pixelated;
+}
+#glow {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; mix-blend-mode: screen;
+  image-rendering: pixelated; opacity: .85;
+}
+#vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 45%, transparent 45%, rgba(0,0,0,.55) 100%);
+}
+
+/* ---------- верхний HUD ---------- */
+#topbar {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px 8px;
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: none; z-index: 5;
+}
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(18,22,30,.78);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+  border: 1px solid rgba(120,140,175,.22);
+  border-radius: 13px; padding: 7px 11px;
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  pointer-events: auto; white-space: nowrap;
+}
+.pill b { color: var(--accent); font-weight: 700; }
+.icon-btn {
+  width: 38px; height: 38px; flex: 0 0 38px;
+  display: grid; place-items: center;
+  background: rgba(18,22,30,.78);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+  border: 1px solid rgba(120,140,175,.22); border-radius: 13px;
+  color: var(--text); pointer-events: auto; cursor: pointer;
+  transition: transform .1s, background .15s;
+}
+.icon-btn:active { transform: scale(.92); background: rgba(38,46,60,.9); }
+.icon-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.spacer { flex: 1 1 auto; }
+
+/* ---------- нижняя панель ---------- */
+#dock {
+  flex: 0 0 auto; position: relative; z-index: 6;
+  background: linear-gradient(180deg, #1c212b 0%, #141821 100%);
+  border-top: 1px solid rgba(140,160,195,.16);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -10px 26px rgba(0,0,0,.5);
+}
+
+/* строка категорий */
+#cats {
+  display: flex; gap: 6px; padding: 8px 10px 6px;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+#cats::-webkit-scrollbar { display: none; }
+.cat {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 11px;
+  background: #232935; border: 1px solid #333b4a;
+  color: #a9b5c9; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.cat .dot { width: 8px; height: 8px; border-radius: 50%; }
+.cat.on {
+  background: linear-gradient(180deg, #ffc233, #f7a51c);
+  border-color: #ffd76b; color: #241a04;
+  box-shadow: 0 3px 12px rgba(255,180,40,.32);
+}
+.cat.on .dot { background: #241a04 !important; }
+
+/* сетка материалов */
+#mats {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(2, 1fr);
+  grid-auto-columns: 74px;
+  gap: 7px;
+  padding: 0 10px 8px;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  height: 152px;
+}
+#mats::-webkit-scrollbar { display: none; }
+
+.mat {
+  position: relative; border-radius: 12px;
+  background: #20262f; border: 1.5px solid #333b49;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; cursor: pointer; overflow: hidden;
+  transition: transform .1s, border-color .15s, box-shadow .15s;
+}
+.mat:active { transform: scale(.94); }
+.mat.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1.5px rgba(255,194,51,.55), 0 4px 16px rgba(255,170,30,.28);
+  background: #2a303c;
+}
+.mat canvas { width: 34px; height: 34px; border-radius: 6px; image-rendering: pixelated; box-shadow: 0 2px 6px rgba(0,0,0,.4); }
+.mat span { font-size: 10.5px; color: #c3cede; font-weight: 600; letter-spacing: -.1px; max-width: 68px; text-align: center; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mat.on span { color: #ffe6a6; }
+
+/* панель инструментов */
+#tools {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 10px 9px; border-top: 1px solid rgba(140,160,195,.1);
+}
+.tool {
+  flex: 0 0 auto; height: 42px; min-width: 42px; padding: 0 11px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 12px; background: #232935; border: 1px solid #333b4a;
+  color: #cdd7e5; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: transform .1s, background .15s, color .15s;
+}
+.tool:active { transform: scale(.94); }
+.tool svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.tool.on { background: linear-gradient(180deg, #4a90ff, #2f6fe0); border-color: #7fb0ff; color: #fff; box-shadow: 0 3px 12px rgba(70,140,255,.3); }
+.tool.warn.on { background: linear-gradient(180deg, #ff6a5e, #e0473b); border-color: #ff9a90; box-shadow: 0 3px 12px rgba(255,90,80,.3); }
+.tool .lbl { display: none; }
+@media (min-width: 430px) { .tool .lbl { display: inline; } }
+#brush-wrap { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 84px; }
+#brush {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 26px; background: transparent; cursor: pointer;
+}
+#brush::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ffc233, #ff7a3d); }
+#brush::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; margin-top: -7px;
+  border-radius: 50%; background: #fff; border: 3px solid #ffb62e;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+#brush::-moz-range-track { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ffc233, #ff7a3d); }
+#brush::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 3px solid #ffb62e; }
+#brush-val {
+  flex: 0 0 auto; min-width: 26px; text-align: center;
+  font-size: 11.5px; font-weight: 700; color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* всплывающее уведомление об открытии реакции */
+#toast {
+  position: absolute; left: 50%; bottom: 18px; transform: translate(-50%, 26px);
+  background: rgba(24,29,38,.96); border: 1px solid rgba(255,194,51,.45);
+  border-radius: 13px; padding: 9px 14px; display: flex; align-items: center; gap: 9px;
+  font-size: 12.5px; color: #f6e7bf; opacity: 0; pointer-events: none;
+  transition: opacity .25s, transform .25s; z-index: 9; max-width: 88%;
+  box-shadow: 0 10px 30px rgba(0,0,0,.55);
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast .em { font-size: 17px; }
+
+/* ---------- модалки ---------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(6,8,12,.74);
+  backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  display: none; align-items: flex-end; justify-content: center;
+}
+.overlay.show { display: flex; }
+.sheet {
+  width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto;
+  background: linear-gradient(180deg, #1e232d, #151920);
+  border: 1px solid rgba(140,160,195,.18);
+  border-radius: 20px 20px 0 0;
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  animation: up .22s ease-out;
+  touch-action: pan-y;
+}
+@keyframes up { from { transform: translateY(28px); opacity: .5; } to { transform: none; opacity: 1; } }
+.sheet h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; letter-spacing: -.2px; }
+.sheet p.sub { margin: 0 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: #3b4352; margin: -6px auto 12px; }
+.rec {
+  display: flex; align-items: center; gap: 11px; padding: 10px 12px;
+  background: #212734; border: 1px solid #303847; border-radius: 13px; margin-bottom: 7px;
+}
+.rec.locked { opacity: .48; }
+.rec .badge {
+  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px;
+  display: grid; place-items: center; font-size: 15px;
+  background: #2d3543; border: 1px solid #3d4757;
+}
+.rec.found .badge { background: linear-gradient(180deg, #ffd05a, #f2a01a); border-color: #ffdd8a; }
+.rec .txt { min-width: 0; }
+.rec .txt b { display: block; font-size: 13px; font-weight: 700; margin-bottom: 1px; }
+.rec .txt small { display: block; font-size: 11.5px; color: var(--muted); }
+.close-row { display: flex; gap: 8px; margin-top: 12px; }
+.btn {
+  flex: 1 1 auto; padding: 13px 14px; border-radius: 13px;
+  background: #262d3a; border: 1px solid #39424f;
+  color: var(--text); font-size: 13.5px; font-weight: 700; cursor: pointer;
+  font-family: inherit;
+  transition: transform .1s, filter .15s;
+}
+.btn:active { transform: scale(.97); }
+.btn.primary { background: linear-gradient(180deg, #ffc233, #f0a015); border-color: #ffd76b; color: #241a04; }
+.btn.ghost { background: transparent; }
+.mats-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.legend-chip {
+  display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #b9c5d6;
+  background: #212734; border: 1px solid #303847; border-radius: 9px; padding: 5px 9px;
+}
+.legend-chip i { width: 10px; height: 10px; border-radius: 3px; }
+
+/* стартовый экран */
+#boot {
+  position: fixed; inset: 0; z-index: 40; background: #0d0f14;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  transition: opacity .35s;
+}
+#boot.hide { opacity: 0; pointer-events: none; }
+#boot .logo {
+  font-size: 30px; font-weight: 800; letter-spacing: -.6px;
+  background: linear-gradient(180deg, #ffd766, #f2910d);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+#boot .hint { font-size: 12.5px; color: var(--muted); }
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid #2a3140; border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* предупреждение о повороте — не нужен, всё в портрете */
+@media (orientation: landscape) and (max-height: 480px) {
+  #rotate { display: flex; }
+}
+#rotate {
+  display: none; position: fixed; inset: 0; z-index: 50;
+  background: #0d0f14; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; color: var(--muted); font-size: 13px;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <canvas id="glow"></canvas>
+    <div id="vignette"></div>
+
+    <div id="topbar">
+      <div class="pill" id="fps">—</div>
+      <div class="spacer"></div>
+      <div class="icon-btn" id="btn-recipe" title="Реакции">
+        <svg viewBox="0 0 24 24"><path d="M9 3v5l-5 9a2 2 0 0 0 1.7 3h12.6a2 2 0 0 0 1.7-3l-5-9V3"/><path d="M8 3h8"/><path d="M7.5 14h9"/></svg>
+      </div>
+      <div class="icon-btn" id="btn-settings" title="Мир">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </div>
+    </div>
+
+    <div id="toast"><span class="em">⚗️</span><span id="toast-txt"></span></div>
+  </div>
+
+  <div id="dock">
+    <div id="cats"></div>
+    <div id="mats"></div>
+    <div id="tools">
+      <div class="tool" id="tool-pause" title="Пауза">
+        <svg id="ico-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></svg>
+        <span class="lbl" id="pause-lbl">Пауза</span>
+      </div>
+      <div class="tool" id="tool-anchor" title="Закрепить блок">
+        <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M8 7h8"/><path d="M12 11v6"/><circle cx="12" cy="19.5" r="2"/></svg>
+        <span class="lbl">Фикс</span>
+      </div>
+      <div id="brush-wrap">
+        <input id="brush" type="range" min="1" max="14" value="4" step="1">
+        <div id="brush-val">4</div>
+      </div>
+      <div class="tool warn" id="tool-erase" title="Ластик">
+        <svg viewBox="0 0 24 24"><path d="M4 15.5 13 6.5a2 2 0 0 1 2.8 0l3.7 3.7a2 2 0 0 1 0 2.8L12 20H7l-3-3a1 1 0 0 1 0-1.5z"/><path d="M10 20h10"/></svg>
+        <span class="lbl">Ластик</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- модалка: реакции -->
+<div class="overlay" id="ov-recipe">
+  <div class="sheet" id="recipe-sheet">
+    <div class="grab"></div>
+    <h2>Книга реакций</h2>
+    <p class="sub">Смешивай материалы — песочница сама находит результат. Открыто <b id="rec-count">0</b> из <b id="rec-total">0</b>.</p>
+    <div id="rec-list"></div>
+    <div class="close-row"><button class="btn primary" data-close="ov-recipe">Готово</button></div>
+  </div>
+</div>
+
+<!-- модалка: мир -->
+<div class="overlay" id="ov-world">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h2>Мир</h2>
+    <p class="sub">Сгенерируй новый ландшафт или убери всё, чтобы построить своё.</p>
+    <div class="close-row" style="flex-wrap:wrap">
+      <button class="btn" data-world="island">🏝 Остров</button>
+      <button class="btn" data-world="volcano">🌋 Вулкан</button>
+    </div>
+    <div class="close-row" style="flex-wrap:wrap">
+      <button class="btn" data-world="desert">🏜 Пустыня</button>
+      <button class="btn" data-world="ice">❄️ Ледник</button>
+    </div>
+    <div class="close-row">
+      <button class="btn ghost" data-world="empty">🧹 Пустой</button>
+      <button class="btn ghost" data-action="save">💾 Сохранить</button>
+      <button class="btn ghost" data-action="load">📂 Загрузить</button>
+    </div>
+    <div class="close-row"><button class="btn primary" data-close="ov-world">Закрыть</button></div>
+  </div>
+</div>
+
+<!-- модалка: о приложении -->
+<div class="overlay" id="ov-about">
+  <div class="sheet">
+    <div class="grab"></div>
+    <h2>Песочница</h2>
+    <p class="sub">Пиксельный физический песочница-мир: 28 материалов, тепло, плотности и настоящие реакции. Ставь блоки пальцем и смотри, что получится.</p>
+    <p class="sub" style="margin-bottom:10px"><b>Подсказки</b><br>• «Фикс» закрепляет блок — он не падает.<br>• Лава плавит песок в стекло, а вода превращает лаву в камень.<br>• Порох + огонь = большой бум.<br>• Кислота растворяет почти всё.</p>
+    <div class="close-row"><button class="btn primary" data-close="ov-about">Понятно</button></div>
+  </div>
+</div>
+
+<div id="boot"><div class="logo">ПЕСОЧНИЦА</div><div class="spinner"></div><div class="hint">Замешиваем физику…</div></div>
+<div id="rotate">Поверни телефон вертикально 📱</div>
+
+<script src="js/materials.js"></script>
+<script src="js/world.js"></script>
+<script src="js/pixel.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
