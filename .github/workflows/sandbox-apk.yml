@@ -87,12 +87,29 @@ jobs:
       - name: Диагностика при ошибке
         if: failure()
         run: |
-          echo "=== ХВОСТ ЛОГА СБОРКИ ==="
-          tail -80 /tmp/build.log || true
-          echo "=== ФАКТЫ ==="
-          echo "compileSdk файла:"; grep -n "compileSdk\|minSdk\|targetSdk" sandbox/app/build.gradle.kts || true
-          java -version 2>&1 | head -2
-          ls "$ANDROID_HOME/platforms" 2>/dev/null || true
+          {
+            echo "=== ХВОСТ ЛОГА СБОРКИ ==="
+            tail -120 /tmp/build.log || true
+            echo; echo "=== ОКРУЖЕНИЕ ==="
+            grep -n "compileSdk\|minSdk\|targetSdk" sandbox/app/build.gradle.kts || true
+            java -version 2>&1 | head -2
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            ls "$ANDROID_HOME/platforms" 2>/dev/null || true
+            ls "$ANDROID_HOME/build-tools" 2>/dev/null || true
+          } > /tmp/diag.txt 2>&1
+          cat /tmp/diag.txt
+
+      - name: Лог сборки (артефакт)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            /tmp/build.log
+            /tmp/diag.txt
+            sandbox/app/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Проверка подписи
         run: |
