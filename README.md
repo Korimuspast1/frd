@@ -33,7 +33,7 @@
 
 ## Установка
 
-Скачать `plugins/chat_stats/chat_stats.plugin` и открыть файл в exteraGram — приложение само предложит установить.
+[Скачать chat_stats.plugin](https://github.com/Korimuspast1/frd/raw/main/plugins/chat_stats/chat_stats.plugin) и открыть файл в exteraGram — приложение само предложит установить.
 
 Или добавить репозиторий в каталоге плагинов:
 
