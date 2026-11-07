@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "name": "ox4gg plugins",
+  "description": "Плагины для exteraGram",
+  "author": "@ox4gg",
+  "homepage": "https://github.com/Korimuspast1/frd",
+  "plugins": [
+    {
+      "id": "chat_stats",
+      "name": "Chat Stats",
+      "description": "Кто сколько пишет, в какие часы чат живёт, топ слов и самые длинные паузы. История запрашивается у Telegram, вся математика крутится на телефоне: ни ботов, ни внешних сервисов, ни отправки переписок куда-либо.",
+      "author": "@ox4gg",
+      "version": "1.0.0",
+      "icon": "exteraPlugins/1",
+      "app_version": ">=12.5.1",
+      "sdk_version": ">=1.4.4.3",
+      "category": [
+        "chats",
+        "tools"
+      ],
+      "file": "plugins/chat_stats/chat_stats.plugin",
+      "sha256": "da7352d5da183d9a2bfe4dd5f4456d5670bdce54576bdbd0a26b460456849537",
+      "size": 384920,
+      "updated_at": "2026-11-07T01:42:17Z"
+    }
+  ]
+}
