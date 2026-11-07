@@ -1,0 +1,22 @@
+name: Build Sandbox APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['arena/**']
+    paths:
+      - 'sandbox/**'
+      - '.github/workflows/sandbox-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    name: Environment probe
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe
+        run: |
+          echo "runner ok"; java -version; echo "ANDROID_HOME=$ANDROID_HOME"; ls "$ANDROID_HOME" 2>/dev/null | head
