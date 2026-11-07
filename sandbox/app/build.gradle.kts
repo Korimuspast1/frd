@@ -65,16 +65,6 @@ android {
     }
 }
 
-androidComponents {
-    onVariants { variant ->
-        variant.outputs.forEach { output ->
-            output.outputFileName.set(
-                output.versionName.map { v -> "sandbox-${variant.name}-v$v.apk" }
-            )
-        }
-    }
-}
-
 dependencies {
     // приложение использует только платформенные API Android
 }
