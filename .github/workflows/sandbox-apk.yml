@@ -89,7 +89,8 @@ jobs:
         run: |
           {
             echo "=== ХВОСТ ЛОГА СБОРКИ ==="
-            tail -120 /tmp/build.log || true
+            # только строки, где Gradle объясняет причину
+            grep -nE "^\* What went wrong|^\* Where|^Caused by|^> |^e: |^FAILURE|error:|Unsupported|Could not|was not found|requires|version " /tmp/build.log | head -60 || true
             echo; echo "=== ОКРУЖЕНИЕ ==="
             grep -n "compileSdk\|minSdk\|targetSdk" sandbox/app/build.gradle.kts || true
             java -version 2>&1 | head -2
@@ -106,7 +107,7 @@ jobs:
           {
             echo "# Ошибка сборки $(date -u)"
             echo '```'
-            tail -150 /tmp/build.log 2>/dev/null || echo "нет /tmp/build.log"
+            cat /tmp/build.log 2>/dev/null || echo "нет /tmp/build.log"
             echo '```'
             cat /tmp/diag.txt 2>/dev/null || true
           } > out/build-error.log
