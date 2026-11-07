@@ -81,8 +81,18 @@ jobs:
       - name: Сборка
         working-directory: sandbox
         run: |
-          set -euo pipefail
-          ./gradlew --no-daemon :app:assembleRelease
+          ./gradlew --no-daemon --stacktrace :app:assembleRelease 2>&1 | tee /tmp/build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Диагностика при ошибке
+        if: failure()
+        run: |
+          echo "=== ХВОСТ ЛОГА СБОРКИ ==="
+          tail -80 /tmp/build.log || true
+          echo "=== ФАКТЫ ==="
+          echo "compileSdk файла:"; grep -n "compileSdk\|minSdk\|targetSdk" sandbox/app/build.gradle.kts || true
+          java -version 2>&1 | head -2
+          ls "$ANDROID_HOME/platforms" 2>/dev/null || true
 
       - name: Проверка подписи
         run: |
