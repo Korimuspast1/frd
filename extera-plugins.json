@@ -10,7 +10,7 @@
       "name": "Chat Stats",
       "description": "Кто сколько пишет, в какие часы чат живёт, топ слов и самые длинные паузы. Считается на телефоне: ни ботов, ни внешних сервисов.",
       "author": "@ox4gg",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "icon": "exteraPlugins/1",
       "app_version": ">=12.5.1",
       "sdk_version": ">=1.4.4.3",
@@ -19,9 +19,9 @@
         "tools"
       ],
       "file": "plugins/chat_stats/chat_stats.plugin",
-      "sha256": "7968ab7ada0f26cc688adff5c1fdc0a871dd8cb26a59fa67c84b39921c9a9d14",
-      "size": 426681,
-      "updated_at": "2026-11-07T02:11:37Z"
+      "sha256": "4b305662590a38fb3bea139d5d66e18d5336a926585a6a57cd25d6c4f3454424",
+      "size": 429516,
+      "updated_at": "2026-11-07T02:22:21Z"
     }
   ]
 }
