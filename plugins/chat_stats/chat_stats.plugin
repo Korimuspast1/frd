@@ -35,7 +35,7 @@ __description__ = (
     "Считается на телефоне: ни ботов, ни внешних сервисов."
 )
 __author__ = "@ox4gg"
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -756,6 +756,7 @@ class ChatStatsPlugin(BasePlugin):
         self._export = None
         self._picker = None
         self._busy_dialog = None
+        self._ctx = None
         try:
             self._menu = self.add_menu_item(
                 MenuItemData(
@@ -912,6 +913,7 @@ class ChatStatsPlugin(BasePlugin):
         return cached or "Download/ChatStats"
 
     def _open_panel(self, _context=None):
+        self._activate(None)  # панель из меню чата: окно ищем по последнему фрагменту
         try:
             dialog = AlertDialogBuilder(self._activity())
             dialog.set_title("Chat Stats")
@@ -924,7 +926,7 @@ class ChatStatsPlugin(BasePlugin):
             dialog.show()
         except BaseException:
             self.logger.exception("panel failed")
-            BulletinHelper.show_error("Не открылось окно настроек")
+            self._report_error("Не открылось окно настроек")
 
     def _pick_panel(self, builder, index):
         try:
@@ -935,7 +937,8 @@ class ChatStatsPlugin(BasePlugin):
         if 0 <= index < len(actions):
             actions[index](None)
 
-    def _open_folder_picker(self, _view=None):
+    def _open_folder_picker(self, view=None):
+        self._activate(view)
         try:
             path = self._export_dir() or _default_export_dir()
             self._dir_label = _short_path(path)
@@ -943,7 +946,7 @@ class ChatStatsPlugin(BasePlugin):
             self._show_picker()
         except BaseException:
             self.logger.exception("picker failed")
-            BulletinHelper.show_error("Не смог открыть выбор папки")
+            self._report_error("Не смог открыть выбор папки")
 
     def _show_picker(self):
         state = getattr(self, "_picker", None) or {"path": "", "entries": []}
@@ -970,7 +973,7 @@ class ChatStatsPlugin(BasePlugin):
             dialog.show()
         except Exception:
             self.logger.exception("picker dialog failed")
-            BulletinHelper.show_error("Не смог показать папки")
+            self._report_error("Не смог показать папки")
 
     def _pick_root(self, builder):
         try:
@@ -979,7 +982,7 @@ class ChatStatsPlugin(BasePlugin):
             pass
         roots = _picker_roots()
         if not roots:
-            BulletinHelper.show_error("Не нашёл папок на устройстве")
+            self._report_error("Не нашёл папок на устройстве")
             return
         entries = [(_short_path(root), "dir", root) for root in roots]
         state = getattr(self, "_picker", None) or {"path": "", "entries": []}
@@ -1022,21 +1025,22 @@ class ChatStatsPlugin(BasePlugin):
             return
         if not _probe_folder(path):
             _log("export dir rejected: %s" % path)
-            BulletinHelper.show_error("Сюда писать нельзя: %s" % _short_path(path))
+            self._report_error("Сюда писать нельзя: %s" % _short_path(path))
             return
         self.set_setting("export_dir", path)
         self._dir_label = _short_path(path)
         _log("export dir set: %s" % path)
         BulletinHelper.show_success("Сохраняю в %s" % _short_path(path))
 
-    def _show_log(self, _view=None):
+    def _show_log(self, view=None):
+        self._activate(view)
         try:
             text = _log_tail(400)
             dialog = AlertDialogBuilder(self._activity())
             dialog.set_title("Лог Chat Stats")
-            view = self._text_view(text, mono=True)
-            if view is not None:
-                dialog.set_view(view, self._view_height())
+            log_view = self._text_view(text, mono=True)
+            if log_view is not None:
+                dialog.set_view(log_view, self._view_height())
             else:
                 dialog.set_message(text[:4000])
             dialog.set_positive_button("Отправить", lambda builder, which: self._send_log())
@@ -1045,7 +1049,7 @@ class ChatStatsPlugin(BasePlugin):
             dialog.show()
         except Exception:
             self.logger.exception("log dialog failed")
-            BulletinHelper.show_error("Не смог открыть лог")
+            self._report_error("Не смог открыть лог")
 
     def _text_view(self, text, mono=False):
         try:
@@ -1110,13 +1114,14 @@ class ChatStatsPlugin(BasePlugin):
         if _log_clear():
             BulletinHelper.show_success("Лог очищен")
         else:
-            BulletinHelper.show_error("Не смог очистить лог")
+            self._report_error("Не смог очистить лог")
 
-    def _open_export(self, _view=None):
+    def _open_export(self, view=None):
+        self._activate(view)
         try:
             activity = self._activity()
             if activity is None:
-                BulletinHelper.show_error("Нет активного окна")
+                self._report_error("Нет активного окна")
                 return
             field = self._input_field(activity)
             holder = self._input_holder(activity, field)
@@ -1136,7 +1141,7 @@ class ChatStatsPlugin(BasePlugin):
             dialog.show()
         except Exception:
             self.logger.exception("export dialog failed")
-            BulletinHelper.show_error("Не смог открыть окно экспорта")
+            self._report_error("Не смог открыть окно экспорта")
 
     def _input_field(self, activity):
         from android.text import InputType
@@ -1172,7 +1177,7 @@ class ChatStatsPlugin(BasePlugin):
     def _export_resolve(self, raw, builder):
         username = _parse_username(raw)
         if not username:
-            BulletinHelper.show_error("Нужен @username или ссылка t.me/name")
+            self._report_error("Нужен @username или ссылка t.me/name")
             return
         try:
             builder.dismiss()
@@ -1193,13 +1198,13 @@ class ChatStatsPlugin(BasePlugin):
         except Exception:
             self.logger.exception("resolve failed")
             self._busy_close()
-            BulletinHelper.show_error("Не получилось отправить запрос")
+            self._report_error("Не получилось отправить запрос")
 
     def _on_resolved(self, account, response, error):
         self._busy_close()
         if error is not None or response is None:
             text = _error_text(error) or "такого юзернейма не знаю"
-            BulletinHelper.show_error("Не нашёл: " + text)
+            self._report_error("Не нашёл: " + text)
             return
         target = self._target_from_peer(
             getattr(response, "peer", None),
@@ -1208,7 +1213,7 @@ class ChatStatsPlugin(BasePlugin):
             account,
         )
         if target is None:
-            BulletinHelper.show_error("Это не чат и не человек")
+            self._report_error("Это не чат и не человек")
             return
         run_on_ui_thread(lambda: self._export_depth(target))
 
@@ -1244,12 +1249,12 @@ class ChatStatsPlugin(BasePlugin):
         except Exception:
             self.logger.exception("dialogs failed")
             self._busy_close()
-            BulletinHelper.show_error("Список не открылся, впиши @username")
+            self._report_error("Список не открылся, впиши @username")
 
     def _on_dialogs(self, account, response, error):
         self._busy_close()
         if error is not None or response is None:
-            BulletinHelper.show_error("Список не открылся, впиши @username")
+            self._report_error("Список не открылся, впиши @username")
             return
         users = _to_list(getattr(response, "users", None))
         chats = _to_list(getattr(response, "chats", None))
@@ -1259,7 +1264,7 @@ class ChatStatsPlugin(BasePlugin):
             if target is not None:
                 targets.append(target)
         if not targets:
-            BulletinHelper.show_error("Пусто, впиши @username вручную")
+            self._report_error("Пусто, впиши @username вручную")
             return
         run_on_ui_thread(lambda: self._show_dialog_list(targets))
 
@@ -1276,7 +1281,7 @@ class ChatStatsPlugin(BasePlugin):
             dialog.show()
         except Exception:
             self.logger.exception("dialog list failed")
-            BulletinHelper.show_error("Список не открылся, впиши @username")
+            self._report_error("Список не открылся, впиши @username")
 
     def _pick_target(self, builder, targets, index):
         try:
@@ -1300,6 +1305,7 @@ class ChatStatsPlugin(BasePlugin):
             dialog.show()
         except Exception:
             self.logger.exception("depth dialog failed")
+            self._report_error("Не смог открыть выбор глубины")
 
     def _pick_depth(self, builder, target, limits, index):
         try:
@@ -1462,12 +1468,12 @@ class ChatStatsPlugin(BasePlugin):
         except Exception:
             self.logger.exception("export result failed")
             self._export_close(job)
-            BulletinHelper.show_error("Не смог отправить архив")
+            self._report_error("Не смог отправить архив")
 
     def _render_export(self, job, path):
         self._export_close(job)
         if not path:
-            BulletinHelper.show_error("Не смог собрать zip")
+            self._report_error("Не смог собрать zip")
             return
         title = job["target"]["title"]
         count = len(job["messages"])
@@ -1503,7 +1509,7 @@ class ChatStatsPlugin(BasePlugin):
     def _export_failed(self, job, message):
         try:
             self._export_close(job)
-            BulletinHelper.show_error(message)
+            self._report_error(message)
         except Exception:
             self.logger.exception("export error dialog failed")
 
@@ -1596,6 +1602,7 @@ class ChatStatsPlugin(BasePlugin):
             pass
 
     def _on_menu(self, context):
+        self._activate(None)  # статистика из меню чата: окно ищем по последнему фрагменту
         try:
             dialog_id = self._dialog_id(context)
             if not dialog_id:
@@ -2013,7 +2020,35 @@ class ChatStatsPlugin(BasePlugin):
             self.logger.exception("cover view failed")
             return None
 
+    def _activate(self, view):
+        """Запоминает окно, в котором нажали строку настроек.
+
+        Экран настроек плагина — отдельное окно, а get_last_fragment()
+        возвращает фрагмент главного экрана позади него: диалоги,
+        собранные по его активности, до настроек не доезжали, и нажатия
+        строк выглядели пустыми. dispatch_setting_click передаёт вьюху
+        нажатой строки, её getContext() и есть нужное окно. Вызов без
+        вьюхи (меню чата, панель) возвращает автоопределение по фрагменту.
+        """
+        self._ctx = None
+        if view is None:
+            return
+        try:
+            context = view.getContext()
+        except Exception:
+            return
+        if context is not None:
+            self._ctx = context
+
     def _activity(self):
+        context = getattr(self, "_ctx", None)
+        if context is not None:
+            try:
+                if not bool(context.isFinishing()):
+                    return context
+            except Exception:
+                return context
+            self._ctx = None  # окно настроек уже закрылось — не строим диалоги по нему
         try:
             fragment = get_last_fragment()
             if fragment is None:
@@ -2021,6 +2056,27 @@ class ChatStatsPlugin(BasePlugin):
             return fragment.getParentActivity()
         except Exception:
             return None
+
+    def _error_dialog(self, message):
+        """Показывает ошибку диалогом в окне, где сейчас идёт действие.
+
+        Бюллетень цепляется к последнему фрагменту главного экрана — из
+        окна настроек его не видно, поэтому ошибки дублируются диалогом.
+        """
+        try:
+            dialog = AlertDialogBuilder(self._activity())
+            dialog.set_title("Chat Stats")
+            dialog.set_message(str(message))
+            dialog.set_positive_button("Понятно", lambda builder, which: builder.dismiss())
+            dialog.show()
+            return True
+        except Exception:
+            self.logger.exception("error dialog failed")
+            return False
+
+    def _report_error(self, message):
+        BulletinHelper.show_error(message)
+        self._error_dialog(message)
 
     def _fail(self, scan, message):
         if scan["finished"]:
