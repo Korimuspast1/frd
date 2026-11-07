@@ -31,7 +31,7 @@ __description__ = (
     "Считается на телефоне: ни ботов, ни внешних сервисов."
 )
 __author__ = "@ox4gg"
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __icon__ = "exteraPlugins/1"
 __app_version__ = ">=12.5.1"
 __sdk_version__ = ">=1.4.4.3"
@@ -41,6 +41,8 @@ __category__ = ["chats", "tools"]
 FILLER_SHARE = 0.35
 EXPORT_CAP = 100000
 PAGE_SIZE = 100
+MAX_PAGES = 1200
+WATCHDOG_MS = 30000
 DEPTHS = (300, 1000, 2000, 5000, 10000, 0)
 DEPTH_LABELS = ("300", "1 000", "2 000", "5 000", "10 000", "Вся история")
 DEFAULT_DEPTH = 2
@@ -840,7 +842,9 @@ class ChatStatsPlugin(BasePlugin):
             "messages": [],
             "names": {},
             "active": True,
+            "finished": False,
             "progress": None,
+            "token": 0,
         }
         self._export = job
         self._export_progress(job)
@@ -884,6 +888,7 @@ class ChatStatsPlugin(BasePlugin):
             callback = lambda response, error: run_on_queue(
                 lambda: self._export_page(job, response, error)
             )
+            self._export_watchdog_arm(job)
             try:
                 send_request(request, callback, account=job["account"])
             except TypeError:
@@ -892,9 +897,30 @@ class ChatStatsPlugin(BasePlugin):
             self.logger.exception("export request failed")
             self._export_fail(job, "Запрос не ушёл")
 
-    def _export_page(self, job, response, error):
-        if not job["active"]:
+    def _export_watchdog_arm(self, job):
+        try:
+            job["token"] += 1
+            token = job["token"]
+            run_on_queue(lambda: self._export_watchdog(job, token), PLUGINS_QUEUE, WATCHDOG_MS)
+        except Exception:
+            pass
+
+    def _export_watchdog(self, job, token):
+        if not job["active"] or job["finished"] or job.get("token") != token:
             return
+        self.logger.error("export: no answer for %s ms", WATCHDOG_MS)
+        self._export_fail(job, "Telegram не ответил, попробуй ещё раз")
+
+    def _export_page(self, job, response, error):
+        if not job["active"] or job["finished"]:
+            return
+        try:
+            self._handle_export_page(job, response, error)
+        except Exception:
+            self.logger.exception("export page failed")
+            self._export_fail(job, "Сломалось на скачивании истории")
+
+    def _handle_export_page(self, job, response, error):
         if error is not None:
             text = _error_text(error)
             self._export_fail(job, text or "Telegram не ответил")
@@ -920,6 +946,7 @@ class ChatStatsPlugin(BasePlugin):
         job["offset"] = oldest
         job["pages"] += 1
         self._export_progress_value(job)
+        self.logger.debug("export page %s: %s messages", job["pages"], len(job["messages"]))
 
         if done:
             run_on_queue(lambda: self._export_finish(job), PLUGINS_QUEUE, 30)
@@ -927,8 +954,9 @@ class ChatStatsPlugin(BasePlugin):
             run_on_queue(lambda: self._export_request(job), PLUGINS_QUEUE, 150)
 
     def _export_finish(self, job):
-        if not job["active"]:
+        if job["finished"]:
             return
+        job["finished"] = True
         job["active"] = False
         path = ""
         try:
@@ -938,6 +966,14 @@ class ChatStatsPlugin(BasePlugin):
         run_on_ui_thread(lambda: self._export_done(job, path))
 
     def _export_done(self, job, path):
+        try:
+            self._render_export(job, path)
+        except Exception:
+            self.logger.exception("export result failed")
+            self._export_close(job)
+            BulletinHelper.show_error("Не смог отправить архив")
+
+    def _render_export(self, job, path):
         self._export_close(job)
         if not path:
             BulletinHelper.show_error("Не смог собрать zip")
@@ -964,12 +1000,19 @@ class ChatStatsPlugin(BasePlugin):
             BulletinHelper.show_info("Файл на месте, путь скопирован")
 
     def _export_fail(self, job, message):
+        if job["finished"]:
+            return
+        job["finished"] = True
         job["active"] = False
+        self.logger.error("export failed: %s", message)
         run_on_ui_thread(lambda: self._export_failed(job, message))
 
     def _export_failed(self, job, message):
-        self._export_close(job)
-        BulletinHelper.show_error(message)
+        try:
+            self._export_close(job)
+            BulletinHelper.show_error(message)
+        except Exception:
+            self.logger.exception("export error dialog failed")
 
     def _export_close(self, job):
         dialog = job.get("progress")
@@ -987,6 +1030,7 @@ class ChatStatsPlugin(BasePlugin):
         if job is None:
             return
         job["active"] = False
+        job["finished"] = True
         self._export_close(job)
 
     def _target_from_peer(self, peer, users, chats, account):
@@ -1099,6 +1143,12 @@ class ChatStatsPlugin(BasePlugin):
             pass
         return int(UserConfig.selectedAccount) if UserConfig is not None else 0
 
+    def _skip_service(self):
+        try:
+            return bool(self.get_setting("skip_service", True))
+        except Exception:
+            return True
+
     def _smart_words(self):
         try:
             return bool(self.get_setting("smart_words", True))
@@ -1140,10 +1190,16 @@ class ChatStatsPlugin(BasePlugin):
             "limit": self._depth(),
             "offset": 0,
             "pages": 0,
+            "fetched": 0,
             "records": [],
             "names": {},
             "active": True,
+            "finished": False,
             "progress": None,
+            "token": 0,
+            "skip_service": self._skip_service(),
+            "stop_words": self._stop_words(),
+            "smart": self._smart_words(),
         }
         self._scan = scan
         self._progress_dialog(scan, self._title(dialog_id, account))
@@ -1163,7 +1219,7 @@ class ChatStatsPlugin(BasePlugin):
             self.logger.exception("progress dialog failed")
 
     def _request(self, scan):
-        if not scan["active"]:
+        if not scan["active"] or scan["finished"]:
             return
         try:
             peer = get_messages_controller(scan["account"]).getInputPeer(scan["dialog"])
@@ -1179,6 +1235,7 @@ class ChatStatsPlugin(BasePlugin):
             request.max_id = 0
             request.min_id = 0
             request.hash = 0
+            self._arm_watchdog(scan)
             callback = lambda response, error: run_on_queue(lambda: self._page(scan, response, error))
             try:
                 send_request(request, callback, account=scan["account"])
@@ -1188,36 +1245,72 @@ class ChatStatsPlugin(BasePlugin):
             self.logger.exception("history request failed")
             self._fail(scan, "Запрос не ушёл")
 
-    def _page(self, scan, response, error):
-        if not scan["active"]:
+    def _arm_watchdog(self, scan):
+        try:
+            scan["token"] += 1
+            token = scan["token"]
+            run_on_queue(lambda: self._watchdog(scan, token), PLUGINS_QUEUE, WATCHDOG_MS)
+        except Exception:
+            pass
+
+    def _watchdog(self, scan, token):
+        if not scan["active"] or scan["finished"] or scan.get("token") != token:
             return
+        self.logger.error("no answer for %s ms, giving up", WATCHDOG_MS)
+        self._fail(scan, "Telegram не ответил, попробуй ещё раз")
+
+    def _page(self, scan, response, error):
+        if not scan["active"] or scan["finished"]:
+            return
+        try:
+            self._handle_page(scan, response, error)
+        except Exception:
+            self.logger.exception("history page failed")
+            self._fail(scan, "Сломалось на чтении истории, глянь лог")
+
+    def _handle_page(self, scan, response, error):
         if error is not None:
-            self._fail(scan, "Telegram: " + _error_text(error) if _error_text(error) else "Telegram не ответил")
+            text = _error_text(error)
+            self._fail(scan, text or "Telegram не ответил")
+            return
+        if response is None:
+            self._fail(scan, "Telegram не ответил")
             return
 
         messages = list(getattr(response, "messages", None) or [])
+        scan["fetched"] += len(messages)
+        scan["pages"] += 1
         self._collect_names(scan["names"], response)
 
-        skip = bool(self.get_setting("skip_service", True))
+        skip_service = scan.get("skip_service", True)
         for message in messages:
-            record = _extract(message, skip)
+            record = _extract(message, skip_service)
             if record is not None:
                 scan["records"].append(record)
 
+        self._progress(scan)
+
         ids = [int(getattr(message, "id", 0) or 0) for message in messages]
         oldest = min([value for value in ids if value > 0], default=0)
-        if oldest <= 0 or oldest == scan["offset"]:
+        enough = (
+            oldest <= 0
+            or oldest == scan["offset"]
+            or len(messages) < PAGE_SIZE
+            or scan["pages"] >= MAX_PAGES
+            or scan["fetched"] >= EXPORT_CAP
+            or (scan["limit"] and scan["fetched"] >= scan["limit"])
+        )
+        self.logger.debug(
+            "page %s: fetched %s, kept %s, oldest %s",
+            scan["pages"], scan["fetched"], len(scan["records"]), oldest,
+        )
+
+        if enough:
             run_on_queue(lambda: self._finish(scan), PLUGINS_QUEUE, 30)
             return
 
         scan["offset"] = oldest
-        scan["pages"] += 1
-        self._progress(scan)
-
-        if len(messages) < PAGE_SIZE or len(scan["records"]) >= EXPORT_CAP or (scan["limit"] and len(scan["records"]) >= scan["limit"]):
-            run_on_queue(lambda: self._finish(scan), PLUGINS_QUEUE, 50)
-        else:
-            run_on_queue(lambda: self._request(scan), PLUGINS_QUEUE, 120)
+        run_on_queue(lambda: self._request(scan), PLUGINS_QUEUE, 120)
 
     def _collect_names(self, names, response):
         try:
@@ -1249,27 +1342,29 @@ class ChatStatsPlugin(BasePlugin):
         dialog = scan.get("progress")
         if dialog is None or not scan["active"] or not scan["limit"]:
             return
-        value = int(len(scan["records"]) * 100 / max(1, scan["limit"]))
+        value = int(scan["fetched"] * 100 / max(1, scan["limit"]))
         try:
-            dialog.set_progress(min(99, value))
+            dialog.set_progress(max(1, min(99, value)))
         except Exception:
             pass
 
     def _finish(self, scan):
-        if not scan["active"]:
+        if scan["finished"]:
             return
+        scan["finished"] = True
         scan["active"] = False
         try:
             self._resolve_names(scan)
             stats = _aggregate(
                 scan["records"],
                 scan["names"],
-                self._stop_words(),
-                self._smart_words(),
+                scan.get("stop_words") or set(),
+                scan.get("smart", True),
             )
         except Exception:
             self.logger.exception("aggregate failed")
             stats = None
+        self.logger.info("scan done: %s pages, %s messages", scan["pages"], scan["fetched"])
         run_on_ui_thread(lambda: self._show(scan, stats))
 
     def _resolve_names(self, scan):
@@ -1303,6 +1398,14 @@ class ChatStatsPlugin(BasePlugin):
                 continue
 
     def _show(self, scan, stats):
+        try:
+            self._render_result(scan, stats)
+        except Exception:
+            self.logger.exception("result dialog failed")
+            self._close(scan)
+            BulletinHelper.show_error("Не смог показать статистику")
+
+    def _render_result(self, scan, stats):
         self._close(scan)
         if not stats:
             BulletinHelper.show_info("Тут пока нечего считать")
@@ -1413,12 +1516,19 @@ class ChatStatsPlugin(BasePlugin):
             return None
 
     def _fail(self, scan, message):
+        if scan["finished"]:
+            return
+        scan["finished"] = True
         scan["active"] = False
+        self.logger.error("scan failed: %s", message)
         run_on_ui_thread(lambda: self._show_error(scan, message))
 
     def _show_error(self, scan, message):
-        self._close(scan)
-        BulletinHelper.show_error(message)
+        try:
+            self._close(scan)
+            BulletinHelper.show_error(message)
+        except Exception:
+            self.logger.exception("error dialog failed")
 
     def _close(self, scan):
         dialog = scan.get("progress")
@@ -1436,6 +1546,7 @@ class ChatStatsPlugin(BasePlugin):
         if scan is None:
             return
         scan["active"] = False
+        scan["finished"] = True
         self._close(scan)
 
 
