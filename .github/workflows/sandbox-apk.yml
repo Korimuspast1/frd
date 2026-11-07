@@ -99,6 +99,23 @@ jobs:
           } > /tmp/diag.txt 2>&1
           cat /tmp/diag.txt
 
+      - name: Лог ошибки в репозиторий
+        if: failure()
+        run: |
+          mkdir -p out
+          {
+            echo "# Ошибка сборки $(date -u)"
+            echo '```'
+            tail -150 /tmp/build.log 2>/dev/null || echo "нет /tmp/build.log"
+            echo '```'
+            cat /tmp/diag.txt 2>/dev/null || true
+          } > out/build-error.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f out/build-error.log
+          git commit -m "ci: лог ошибки сборки" || true
+          git push origin HEAD:"${GITHUB_REF_NAME}" || true
+
       - name: Лог сборки (артефакт)
         if: always()
         uses: actions/upload-artifact@v4
